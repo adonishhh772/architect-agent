@@ -1,0 +1,25 @@
+{
+  "name": "@sentinel/cli",
+  "version": "1.0.0",
+  "type": "module",
+  "bin": {
+    "architecture-sentinel": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/cli.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@sentinel/analysis": "1.0.0",
+    "@sentinel/ingestion": "1.0.0",
+    "@sentinel/providers": "1.0.0",
+    "@sentinel/schema": "1.0.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

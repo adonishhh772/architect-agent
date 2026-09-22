@@ -1,0 +1,37 @@
+import { reportToMarkdown, reportToPrintableHtml } from "@sentinel/analysis";
+import { sanitizeReportForExport, type AnalysisReport } from "@sentinel/schema";
+
+export function downloadTextFile(filename: string, content: string, mimeType: string): void {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+export function exportReportJson(report: AnalysisReport): void {
+  const sanitized = sanitizeReportForExport(report);
+  downloadTextFile(
+    `architecture-sentinel-${sanitized.id}.json`,
+    JSON.stringify(sanitized, null, 2),
+    "application/json",
+  );
+}
+
+export function exportReportMarkdown(report: AnalysisReport): void {
+  downloadTextFile(
+    `architecture-sentinel-${report.id}.md`,
+    reportToMarkdown(report),
+    "text/markdown",
+  );
+}
+
+export function exportReportHtml(report: AnalysisReport): void {
+  downloadTextFile(
+    `architecture-sentinel-${report.id}.html`,
+    reportToPrintableHtml(report),
+    "text/html",
+  );
+}

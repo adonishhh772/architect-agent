@@ -4,10 +4,11 @@ import {
   buildRepositoryStore,
   fetchGitHubRepository,
   parseGitHubRepositoryUrl,
+  postPullRequestComment,
 } from "@sentinel/ingestion";
 import { createProviderAdapter } from "@sentinel/providers";
-import { ANALYSIS_MODE, ProviderSettingsSchema, sanitizeReportForExport } from "@sentinel/schema";
-import { mkdir, writeFile } from "node:fs/promises";
+import { ANALYSIS_MODE, AuditMemorySchema, ProviderSettingsSchema, sanitizeReportForExport } from "@sentinel/schema";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 
@@ -17,9 +18,12 @@ const CliArgsSchema = z.object({
   providerId: z.enum(["openai", "anthropic", "gemini", "deepseek", "openai_compatible"]),
   modelId: z.string().min(1),
   outputDir: z.string().default("./analysis-artifacts"),
-  maxRequests: z.coerce.number().int().positive().default(10),
+  maxRequests: z.coerce.number().int().positive().default(24),
   maxTokens: z.coerce.number().int().positive().default(100_000),
   enableAi: z.coerce.boolean().default(true),
+  memoryPath: z.string().optional(),
+  pullRequestNumber: z.coerce.number().int().positive().optional(),
+  postReview: z.coerce.boolean().default(false),
 });
 
 function parseArgs(argv: string[]): z.infer<typeof CliArgsSchema> {
@@ -46,6 +50,9 @@ function parseArgs(argv: string[]): z.infer<typeof CliArgsSchema> {
     maxRequests: map.maxRequests,
     maxTokens: map.maxTokens,
     enableAi: map.enableAi ?? "true",
+    memoryPath: map.memory,
+    pullRequestNumber: map.pullRequest,
+    postReview: map.postReview ?? "false",
   });
 }
 
@@ -112,6 +119,8 @@ async function main(): Promise<void> {
       maxRequests: args.maxRequests,
       maxTokens: args.maxTokens,
     },
+    githubToken,
+    priorMemory: await readPriorMemory(args.memoryPath),
   });
 
   const sanitized = sanitizeReportForExport(report);
@@ -120,8 +129,37 @@ async function main(): Promise<void> {
   const mdPath = path.join(args.outputDir, `report-${sanitized.id}.md`);
   await writeFile(jsonPath, JSON.stringify(sanitized, null, 2), "utf8");
   await writeFile(mdPath, reportToMarkdown(sanitized), "utf8");
+  const memoryPath = path.join(args.outputDir, "memory.json");
+  if (sanitized.memory) {
+    await writeFile(memoryPath, JSON.stringify(sanitized.memory, null, 2), "utf8");
+    console.log(`Wrote ${memoryPath}`);
+  }
+  if (args.postReview) {
+    if (!githubToken) {
+      throw new Error("GITHUB_TOKEN is required to post a pull request review comment");
+    }
+    if (!args.pullRequestNumber) {
+      throw new Error("--pullRequest is required with --postReview");
+    }
+    if (!report.pullRequestReview) {
+      throw new Error("The report has no pull request review comment to post");
+    }
+    await postPullRequestComment(repoRef, args.pullRequestNumber, report.pullRequestReview.commentBody, {
+      token: githubToken,
+      runtime: "node",
+    });
+    console.log(`Posted review comment on pull request #${args.pullRequestNumber}`);
+  }
   console.log(`Wrote ${jsonPath}`);
   console.log(`Wrote ${mdPath}`);
+}
+
+async function readPriorMemory(memoryPath: string | undefined) {
+  if (!memoryPath) {
+    return undefined;
+  }
+  const raw = await readFile(memoryPath, "utf8");
+  return AuditMemorySchema.parse(JSON.parse(raw));
 }
 
 main().catch((error: unknown) => {

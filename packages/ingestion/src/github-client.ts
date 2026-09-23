@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { buildGitHubApiErrorMessage, getGitHubApiHeaders } from "./github-api-errors.js";
 import type { GitHubRepoRef } from "./github-url.js";
 import { extractZipSafely } from "./zip-safety.js";
@@ -297,4 +298,127 @@ export async function fetchGitHubRepository(
       `${message} Browser mode requires a GitHub personal access token (repo scope) or a ZIP upload — direct archive download is blocked by CORS on static hosting.`,
     );
   }
+}
+
+const PULL_REQUEST_LIMITS = {
+  MAX_PULL_REQUESTS: 10,
+  MAX_FILES_PER_PULL_REQUEST: 20,
+  MAX_PATCH_CHARS: 3_500,
+} as const;
+
+const PullRequestListItemSchema = z.object({
+  number: z.number().int().positive(),
+  title: z.string(),
+  state: z.string(),
+  html_url: z.string().url().optional(),
+});
+
+const PullRequestFileSchema = z.object({
+  filename: z.string(),
+  status: z.string(),
+  patch: z.string().optional(),
+});
+
+export interface PullRequestFileChange {
+  filename: string;
+  status: string;
+  patch?: string;
+}
+
+export interface PullRequestSnapshot {
+  number: number;
+  title: string;
+  state: string;
+  htmlUrl?: string;
+  files: PullRequestFileChange[];
+}
+
+export function clipPullRequestPatch(patch: string | undefined): string | undefined {
+  if (!patch) {
+    return undefined;
+  }
+  return patch.slice(0, PULL_REQUEST_LIMITS.MAX_PATCH_CHARS);
+}
+
+export async function fetchOpenPullRequests(
+  repoRef: GitHubRepoRef,
+  options: GitHubFetchOptions = {},
+): Promise<PullRequestSnapshot[]> {
+  const resolvedOptions = normalizeGitHubFetchOptions(options);
+  const listResponse = await githubFetch(
+    `/repos/${repoRef.owner}/${repoRef.name}/pulls?state=open&per_page=${PULL_REQUEST_LIMITS.MAX_PULL_REQUESTS}&sort=updated`,
+    resolvedOptions,
+  );
+  await assertGitHubOk(listResponse, "open pull requests");
+  const listPayload: unknown = await listResponse.json();
+  const listParsed = z.array(PullRequestListItemSchema).safeParse(listPayload);
+  if (!listParsed.success) {
+    return [];
+  }
+
+  const snapshots: PullRequestSnapshot[] = [];
+  for (const pullRequest of listParsed.data.slice(0, PULL_REQUEST_LIMITS.MAX_PULL_REQUESTS)) {
+    if (resolvedOptions.signal?.aborted) {
+      throw new DOMException("Aborted", "AbortError");
+    }
+    const filesResponse = await githubFetch(
+      `/repos/${repoRef.owner}/${repoRef.name}/pulls/${pullRequest.number}/files?per_page=${PULL_REQUEST_LIMITS.MAX_FILES_PER_PULL_REQUEST}`,
+      resolvedOptions,
+    );
+    if (!filesResponse.ok) {
+      snapshots.push({
+        number: pullRequest.number,
+        title: pullRequest.title,
+        state: pullRequest.state,
+        htmlUrl: pullRequest.html_url,
+        files: [],
+      });
+      continue;
+    }
+    const filesPayload: unknown = await filesResponse.json();
+    const filesParsed = z.array(PullRequestFileSchema).safeParse(filesPayload);
+    const files = filesParsed.success
+      ? filesParsed.data.slice(0, PULL_REQUEST_LIMITS.MAX_FILES_PER_PULL_REQUEST).map((file) => ({
+          filename: file.filename,
+          status: file.status,
+          patch: clipPullRequestPatch(file.patch),
+        }))
+      : [];
+    snapshots.push({
+      number: pullRequest.number,
+      title: pullRequest.title,
+      state: pullRequest.state,
+      htmlUrl: pullRequest.html_url,
+      files,
+    });
+  }
+  return snapshots;
+}
+
+export async function postPullRequestComment(
+  repoRef: GitHubRepoRef,
+  pullRequestNumber: number,
+  body: string,
+  options: GitHubFetchOptions = {},
+): Promise<void> {
+  if (!Number.isInteger(pullRequestNumber) || pullRequestNumber < 1) {
+    throw new Error("Pull request number must be a positive integer");
+  }
+  if (!body.trim()) {
+    throw new Error("Pull request review comment is empty");
+  }
+  const resolvedOptions = normalizeGitHubFetchOptions(options);
+  const response = await fetch(
+    `${resolveGitHubApiBase(resolvedOptions)}/repos/${repoRef.owner}/${repoRef.name}/issues/${pullRequestNumber}/comments`,
+    {
+      method: "POST",
+      headers: {
+        ...getGitHubApiHeaders(resolvedOptions.token),
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ body: body.slice(0, 16000) }),
+      signal: resolvedOptions.signal,
+    },
+  );
+  await assertGitHubOk(response, "pull request comment");
 }

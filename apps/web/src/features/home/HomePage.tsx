@@ -27,7 +27,7 @@ const WORKFLOW_STEPS = [
   {
     icon: Shield,
     title: "Assess",
-    detail: "STRIDE, AI risks, evidence-backed findings",
+    detail: "STRIDE, OWASP, ATLAS, data and infrastructure risk",
   },
 ] as const;
 
@@ -51,8 +51,8 @@ export function HomePage(): JSX.Element {
             </h1>
             <p className="mt-5 max-w-xl text-base leading-relaxed text-[var(--md-on-surface-variant)] sm:text-lg">
               Investigate repositories locally: reconstruct architecture, trace data across trust
-              boundaries, classify STRIDE threats, and review AI-specific risks — with file-level
-              evidence, not generic scores.
+              boundaries, and review STRIDE, OWASP, MITRE ATLAS, data, and infrastructure risk —
+              with file-level evidence, not generic scores.
             </p>
             <p className="mt-4 flex items-start gap-2 text-sm text-amber-700 dark:text-amber-200/90">
               <Shield className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />

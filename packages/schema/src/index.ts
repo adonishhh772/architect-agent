@@ -5,6 +5,7 @@ export * from "./findings.js";
 export * from "./coverage.js";
 export * from "./corrections.js";
 export * from "./provider-config.js";
+export * from "./memory.js";
 export * from "./report.js";
 export * from "./sanitize-export.js";
 export * from "./validate-evidence.js";

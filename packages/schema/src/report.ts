@@ -1,9 +1,32 @@
 import { z } from "zod";
-import { ANALYSIS_MODE, REPORT_SCHEMA_VERSION } from "./constants.js";
+import { AGENT_RUN_STATUS, ANALYSIS_MODE, REPORT_SCHEMA_VERSION } from "./constants.js";
 import { ArchitectureGraphSchema } from "./graph.js";
 import { AttackPathSchema, FindingSchema } from "./findings.js";
 import { CoverageReportSchema } from "./coverage.js";
 import { UserCorrectionSchema } from "./corrections.js";
+import { AuditMemorySchema } from "./memory.js";
+
+export const PullRequestReviewSchema = z.object({
+  commentBody: z.string().max(16000),
+  newFindingKeys: z.array(z.string().max(300)).default([]),
+  fixedFindingKeys: z.array(z.string().max(300)).default([]),
+  regressedFindingKeys: z.array(z.string().max(300)).default([]),
+});
+
+export type PullRequestReview = z.infer<typeof PullRequestReviewSchema>;
+
+export const AgentTraceEntrySchema = z.object({
+  agentId: z.string().min(1),
+  status: z.enum([
+    AGENT_RUN_STATUS.COMPLETED,
+    AGENT_RUN_STATUS.SKIPPED,
+    AGENT_RUN_STATUS.FAILED,
+  ]),
+  detail: z.string().max(2000),
+  toolCallCount: z.number().int().nonnegative(),
+});
+
+export type AgentTraceEntry = z.infer<typeof AgentTraceEntrySchema>;
 
 export const RepositoryMetadataSchema = z.object({
   sourceType: z.enum(["github", "zip", "import"]),
@@ -41,6 +64,8 @@ export const AnalysisReportSchema = z.object({
   ]),
   repository: RepositoryMetadataSchema,
   executiveSummary: z.string().max(16000),
+  architectureOverview: z.string().max(16000).optional(),
+  agentTrace: z.array(AgentTraceEntrySchema).default([]),
   disclaimer: z.string().max(4000),
   graph: ArchitectureGraphSchema,
   findings: z.array(FindingSchema),
@@ -58,6 +83,8 @@ export const AnalysisReportSchema = z.object({
     }),
   ),
   budget: AnalysisBudgetSchema,
+  memory: AuditMemorySchema.optional(),
+  pullRequestReview: PullRequestReviewSchema.optional(),
   checkpointId: z.string().optional(),
 });
 

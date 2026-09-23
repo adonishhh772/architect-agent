@@ -14,7 +14,7 @@ export function FindingDetailsPanel({ finding }: FindingDetailsPanelProps): JSX.
       >
         <FileSearch className="mb-3 h-10 w-10 text-[var(--md-on-surface-variant)]" aria-hidden />
         <p className="text-sm text-[var(--md-on-surface-variant)]">
-          Select a finding to inspect evidence, STRIDE tags, and mitigation guidance.
+          Select a finding to inspect evidence, framework tags, and mitigation guidance.
         </p>
       </div>
     );
@@ -37,6 +37,46 @@ export function FindingDetailsPanel({ finding }: FindingDetailsPanelProps): JSX.
         <p className="text-sm text-[var(--md-on-surface-variant)]">
           <span className="font-semibold text-[var(--md-on-surface)]">STRIDE:</span>{" "}
           {finding.strideCategories.join(", ")}
+        </p>
+      )}
+      {(finding.owaspCategories ?? []).length > 0 && (
+        <p className="text-sm text-[var(--md-on-surface-variant)]">
+          <span className="font-semibold text-[var(--md-on-surface)]">OWASP:</span>{" "}
+          {(finding.owaspCategories ?? []).join(", ")}
+        </p>
+      )}
+      {(finding.atlasTechniqueIds ?? []).length > 0 && (
+        <p className="text-sm text-[var(--md-on-surface-variant)]">
+          <span className="font-semibold text-[var(--md-on-surface)]">MITRE ATLAS:</span>{" "}
+          {(finding.atlasTechniqueIds ?? []).join(", ")}
+        </p>
+      )}
+      {finding.riskScore !== undefined && (
+        <p className="text-sm text-[var(--md-on-surface-variant)]" data-testid="finding-risk">
+          <span className="font-semibold text-[var(--md-on-surface)]">Risk:</span> {finding.riskScore}{" "}
+          (impact {finding.impact ?? "—"}, likelihood {finding.likelihood ?? "—"}, rank{" "}
+          {finding.remediationRank ?? "duplicate"})
+          {finding.lifecycle ? `, ${finding.lifecycle}` : ""}
+        </p>
+      )}
+      {finding.dataFlow && (
+        <div data-testid="finding-data-flow">
+          <h4 className="text-sm font-semibold text-[var(--md-on-surface)]">Data flow</h4>
+          <p className="mt-1 text-sm text-[var(--md-on-surface-variant)]">{finding.dataFlow.summary}</p>
+          <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-[var(--md-on-surface-variant)]">
+            {finding.dataFlow.steps.map((step) => (
+              <li key={`${step.role}:${step.path}:${step.line ?? 0}`}>
+                {step.role}: {step.label} ({step.path}
+                {step.line ? `:${step.line}` : ""})
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+      {(finding.riskDomains ?? []).length > 0 && (
+        <p className="text-sm text-[var(--md-on-surface-variant)]">
+          <span className="font-semibold text-[var(--md-on-surface)]">Risk domains:</span>{" "}
+          {(finding.riskDomains ?? []).join(", ")}
         </p>
       )}
       {finding.preconditions.length > 0 && (

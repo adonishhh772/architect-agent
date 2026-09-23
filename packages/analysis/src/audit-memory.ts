@@ -43,6 +43,7 @@ export function buildAuditMemory(input: {
       state: pullRequest.state.slice(0, 40),
       filenames: pullRequest.files.map((file) => file.filename).slice(0, 40),
     })),
+    dispositions: [],
     updatedAt: input.updatedAt,
   };
 }

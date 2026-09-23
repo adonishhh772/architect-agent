@@ -1,4 +1,4 @@
-import { reportToMarkdown, reportToPrintableHtml } from "@sentinel/analysis";
+import { reportToMarkdown, reportToPrintableHtml, reportToSarif } from "@sentinel/analysis";
 import { sanitizeReportForExport, type AnalysisReport } from "@sentinel/schema";
 
 export function downloadTextFile(filename: string, content: string, mimeType: string): void {
@@ -25,6 +25,14 @@ export function exportReportMarkdown(report: AnalysisReport): void {
     `architecture-sentinel-${report.id}.md`,
     reportToMarkdown(report),
     "text/markdown",
+  );
+}
+
+export function exportReportSarif(report: AnalysisReport): void {
+  downloadTextFile(
+    `architecture-sentinel-${report.id}.sarif`,
+    reportToSarif(report),
+    "application/sarif+json",
   );
 }
 

@@ -92,7 +92,7 @@ export async function runFollowUpCopilot(input: {
     const draftToolCalls = parsed.data.toolCalls ?? [];
     answer = keepDefensiveAnswer(draftAnswer);
     citations = draftCitations.filter((citation) => input.contents.has(citation.path));
-    if (draftToolCalls.length === 0 || answer.trim().length > 0) {
+    if (draftToolCalls.length === 0) {
       break;
     }
     for (const call of draftToolCalls) {

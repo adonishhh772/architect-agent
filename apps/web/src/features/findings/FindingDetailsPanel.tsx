@@ -1,11 +1,21 @@
-import type { Finding } from "@sentinel/schema";
+import { FINDING_DISPOSITION, type Finding } from "@sentinel/schema";
 import { FileSearch } from "lucide-react";
+import type { MouseEvent } from "react";
+
+const DISPOSITION_OPTIONS = [
+  FINDING_DISPOSITION.CONFIRMED,
+  FINDING_DISPOSITION.FALSE_POSITIVE,
+  FINDING_DISPOSITION.ACCEPTED_RISK,
+] as const;
+
+type DispositionValue = (typeof DISPOSITION_OPTIONS)[number];
 
 interface FindingDetailsPanelProps {
   finding?: Finding;
+  onDispositionChange?: (stableKey: string, disposition: DispositionValue) => void;
 }
 
-export function FindingDetailsPanel({ finding }: FindingDetailsPanelProps): JSX.Element {
+export function FindingDetailsPanel({ finding, onDispositionChange }: FindingDetailsPanelProps): JSX.Element {
   if (!finding) {
     return (
       <div
@@ -20,6 +30,14 @@ export function FindingDetailsPanel({ finding }: FindingDetailsPanelProps): JSX.
     );
   }
 
+  function handleDispositionClick(event: MouseEvent<HTMLButtonElement>): void {
+    const disposition = event.currentTarget.dataset.disposition;
+    if (!onDispositionChange || !isDisposition(disposition)) {
+      return;
+    }
+    onDispositionChange(finding.stableKey, disposition);
+  }
+
   return (
     <article className="md-elevated-card space-y-4" data-testid="finding-details">
       <header>
@@ -29,6 +47,36 @@ export function FindingDetailsPanel({ finding }: FindingDetailsPanelProps): JSX.
         <h3 className="font-display mt-1 text-xl font-semibold text-[var(--md-on-surface)]">{finding.title}</h3>
       </header>
       <p className="text-sm leading-relaxed text-[var(--md-on-surface-variant)]">{finding.scenario}</p>
+      {(finding.cweIds ?? []).length > 0 && (
+        <p className="text-sm text-[var(--md-on-surface-variant)]" data-testid="finding-cwe">
+          <span className="font-semibold text-[var(--md-on-surface)]">CWE:</span> {(finding.cweIds ?? []).join(", ")}
+          {finding.language ? ` · ${finding.language}` : ""}
+        </p>
+      )}
+      {finding.remediationDiff && (
+        <pre
+          className="overflow-x-auto rounded-lg bg-[var(--md-surface-container-high)]/70 p-3 text-xs text-[var(--md-on-surface)]"
+          data-testid="finding-remediation-diff"
+        >
+          {finding.remediationDiff}
+        </pre>
+      )}
+      {onDispositionChange && (
+        <div className="flex flex-wrap gap-2" data-testid="finding-disposition">
+          {DISPOSITION_OPTIONS.map((disposition) => (
+            <button
+              key={disposition}
+              type="button"
+              data-disposition={disposition}
+              data-testid={`disposition-${disposition}`}
+              className="rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ring-1 ring-[var(--md-outline)]/40"
+              onClick={handleDispositionClick}
+            >
+              {disposition.split("_").join(" ")}
+            </button>
+          ))}
+        </div>
+      )}
       <div>
         <h4 className="text-sm font-semibold text-[var(--md-on-surface)]">Mitigation</h4>
         <p className="mt-1 text-sm text-[var(--md-on-surface-variant)]">{finding.mitigation}</p>
@@ -143,4 +191,8 @@ export function FindingDetailsPanel({ finding }: FindingDetailsPanelProps): JSX.
       )}
     </article>
   );
+}
+
+function isDisposition(value: string | undefined): value is DispositionValue {
+  return DISPOSITION_OPTIONS.some((option) => option === value);
 }

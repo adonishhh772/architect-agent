@@ -25,7 +25,7 @@ const AI_PATTERNS = [
 ];
 
 const DATA_STORE_PATTERNS = [
-  /\b(PrismaClient|mongoose|TypeORM|Redis|postgres|mongodb|supabase)\b/gi,
+  /\b(?:PrismaClient|mongoose|TypeORM|Redis|postgres|mongodb|supabase)\s*\(/gi,
 ];
 
 const EXTERNAL_PATTERNS = [

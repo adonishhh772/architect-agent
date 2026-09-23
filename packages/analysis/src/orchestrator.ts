@@ -1,4 +1,4 @@
-import { extractArchitectureFromTypeScript, extractCallFlows } from "@sentinel/graph";
+import { buildArchitectureProfile, extractArchitecture, extractCallFlows } from "@sentinel/graph";
 import type { AiProviderAdapter } from "@sentinel/providers";
 import {
   AGENT_RUN_STATUS,
@@ -16,7 +16,9 @@ import {
 import { fetchOpenPullRequests, type PullRequestSnapshot } from "@sentinel/ingestion";
 import { buildCoverageReport } from "./coverage-builder.js";
 import { runDeepInvestigationAgent } from "./deep-investigation-agent.js";
+import { applyStoredDispositions } from "./disposition.js";
 import { generateDeterministicFindings } from "./deterministic-scanners.js";
+import { runExecutableSkills } from "./language-detectors.js";
 import { queryOsvAdvisories } from "./osv-advisory.js";
 import { buildPullRequestReview, reconcileFindingLifecycle } from "./pull-request-gate.js";
 import { buildRankedRecommendations, rankFindings } from "./risk-ranking.js";
@@ -67,10 +69,11 @@ export async function runAnalysisOrchestrator(
   }
 
   emit("graph", "Extracting architecture graph", 2, 10);
-  const graph = extractArchitectureFromTypeScript({
+  const graph = extractArchitecture({
     files: options.store.contents,
     commitSha: options.store.index.commitSha,
   });
+  const architectureProfile = buildArchitectureProfile(options.store.contents, graph);
 
   emit("static", "Running rules, secret scans, and dependency advisories", 4, 10);
   const staticFindings = generateStaticFindings({
@@ -79,6 +82,11 @@ export async function runAnalysisOrchestrator(
     commitSha: options.store.index.commitSha,
   });
   const scannerFindings = generateDeterministicFindings({
+    contents: options.store.contents,
+    graph,
+    commitSha: options.store.index.commitSha,
+  });
+  const skillFindings = runExecutableSkills({
     contents: options.store.contents,
     graph,
     commitSha: options.store.index.commitSha,
@@ -153,6 +161,7 @@ export async function runAnalysisOrchestrator(
       dedupeByStableKey([
         ...staticFindings,
         ...scannerFindings,
+        ...skillFindings,
         ...advisoryLookup.findings,
         ...aiFindings,
       ]),
@@ -180,7 +189,7 @@ export async function runAnalysisOrchestrator(
     {
       area: "deterministic_scanners",
       status: "complete",
-      detail: "Secret, authentication, injection, and server-side request patterns were checked without executing the repository.",
+      detail: "Secret, authentication, injection, path, deserialization, crypto, container, and workflow patterns were checked for JavaScript, Python, and Go without executing the repository.",
     },
   ];
 
@@ -203,7 +212,8 @@ export async function runAnalysisOrchestrator(
         aiPassesCompleted: aiInvestigation.aiPassesCompleted,
       },
     ),
-    architectureOverview: aiInvestigation.architectureBrief,
+    architectureOverview: aiInvestigation.architectureBrief ?? architectureProfile.purpose,
+    architectureProfile,
     agentTrace: aiInvestigation.agentTrace,
     memory: attachLifecycleMemory(
       aiInvestigation.memory,
@@ -211,6 +221,7 @@ export async function runAnalysisOrchestrator(
       findings.findings,
       repositoryKeyFor(options.repository),
       options.store.index.commitSha,
+      options.priorMemory,
     ),
     pullRequestReview: buildPullRequestReview({
       findings: findings.findings,
@@ -261,7 +272,8 @@ function applyReviewOrdering(
   priorMemory: AuditMemory | undefined,
   commitSha?: string,
 ): ReturnType<typeof reconcileFindingLifecycle> {
-  const ranked = rankFindings(findings);
+  const withDisposition = applyStoredDispositions(findings, priorMemory);
+  const ranked = rankFindings(withDisposition);
   return reconcileFindingLifecycle({ findings: ranked, priorMemory, commitSha });
 }
 
@@ -298,15 +310,18 @@ function attachLifecycleMemory(
   findings: Finding[],
   repositoryKey: string,
   commitSha?: string,
+  priorMemory?: AuditMemory,
 ): AuditMemory {
   const updatedAt = new Date().toISOString();
   const priorFindingKeys = findings.map((finding) => finding.stableKey);
+  const dispositions = priorMemory?.dispositions ?? memory?.dispositions ?? [];
   if (memory) {
     return {
       ...memory,
       commitSha: commitSha ?? memory.commitSha,
       priorFindingKeys,
       findingRecords: records,
+      dispositions,
       updatedAt,
     };
   }
@@ -320,6 +335,7 @@ function attachLifecycleMemory(
     priorFindingKeys,
     findingRecords: records,
     pullRequestsReviewed: [],
+    dispositions,
     updatedAt,
   };
 }
@@ -348,7 +364,8 @@ function buildExecutiveSummary(
     deepCoverage && deepCoverage.aiPassesCompleted > 0
       ? ` Multi-agent review read ${deepCoverage.filesSampled} prioritized files across ${deepCoverage.totalIndexedFiles} indexed paths (${deepCoverage.aiPassesCompleted} specialist agents completed).`
       : "";
-  const metrics = `Mapped ${nodeCount} architecture components. ${findings.length} findings (${securityCount} security, ${architectureCount} architecture, ${aiCount} AI-security, ${strideTagged} STRIDE-tagged, ${owaspTagged} OWASP-tagged, ${atlasTagged} ATLAS-tagged).${deepNote}${partialNote}`;
+  const findingLabel = findings.length === 1 ? "finding" : "findings";
+  const metrics = `Mapped ${nodeCount} architecture components. ${findings.length} ${findingLabel} (${securityCount} security, ${architectureCount} architecture, ${aiCount} AI-security, ${strideTagged} STRIDE-tagged, ${owaspTagged} OWASP-tagged, ${atlasTagged} ATLAS-tagged).${deepNote}${partialNote}`;
   if (threatModelOverview?.trim()) {
     return `${metrics}\n\nThreat model overview:\n${threatModelOverview.trim()}`;
   }

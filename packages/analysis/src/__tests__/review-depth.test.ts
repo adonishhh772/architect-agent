@@ -156,6 +156,7 @@ describe("pull request gate", () => {
         { stableKey: "secret-token-src-b-2", lifecycle: FINDING_LIFECYCLE.FIXED },
       ],
       pullRequestsReviewed: [],
+      dispositions: [],
       updatedAt: "2026-09-23T12:00:00.000Z",
     };
     const lifecycle = reconcileFindingLifecycle({

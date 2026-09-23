@@ -1,4 +1,5 @@
 import { FINDING_STATUS, type AnalysisReport, type Finding } from "@sentinel/schema";
+import { isSuppressedDisposition } from "./disposition.js";
 
 const IMPACT = {
   CODE_EXECUTION: 5,
@@ -65,7 +66,7 @@ export function rankFindings(findings: Finding[]): Finding[] {
 
 export function buildRankedRecommendations(findings: Finding[]): AnalysisReport["recommendations"] {
   return findings
-    .filter((finding) => !finding.duplicateOfStableKey)
+    .filter((finding) => !finding.duplicateOfStableKey && !isSuppressedDisposition(finding.disposition))
     .slice()
     .sort((left, right) => (left.remediationRank ?? Number.MAX_SAFE_INTEGER) - (right.remediationRank ?? Number.MAX_SAFE_INTEGER))
     .slice(0, RECOMMENDATION_LIMIT)
@@ -95,7 +96,15 @@ function scoreFinding(finding: Finding): Finding {
 
 function impactFor(finding: Finding): number {
   const key = finding.stableKey;
-  if (key.startsWith("eval-") || key.startsWith("command-injection")) {
+  if (
+    key.startsWith("eval-") ||
+    key.startsWith("command-injection") ||
+    key.startsWith("command-execution") ||
+    key.startsWith("deserialization") ||
+    key.startsWith("path-traversal") ||
+    key.startsWith("workflow-") ||
+    key.startsWith("supply-chain")
+  ) {
     return IMPACT.CODE_EXECUTION;
   }
   if (key.startsWith("secret-") || key.startsWith("env-file")) {
@@ -106,10 +115,16 @@ function impactFor(finding: Finding): number {
   }
   if (
     key.startsWith("sql-injection") ||
+    key.startsWith("sql-interpolation") ||
     key.startsWith("xss-") ||
     key.startsWith("ssrf-") ||
     key.startsWith("missing-auth") ||
-    key.startsWith("published-port")
+    key.startsWith("route-auth") ||
+    key.startsWith("published-port") ||
+    key.startsWith("weak-crypto") ||
+    key.startsWith("jwt-") ||
+    key.startsWith("insecure-cookie") ||
+    key.startsWith("dockerfile-")
   ) {
     return IMPACT.INJECTION;
   }

@@ -422,3 +422,72 @@ export async function postPullRequestComment(
   );
   await assertGitHubOk(response, "pull request comment");
 }
+
+export interface PullRequestReviewCommentInput {
+  path: string;
+  line: number;
+  body: string;
+}
+
+export async function fetchPullRequestFileNames(
+  repoRef: GitHubRepoRef,
+  pullRequestNumber: number,
+  options: GitHubFetchOptions = {},
+): Promise<string[]> {
+  const resolvedOptions = normalizeGitHubFetchOptions(options);
+  const response = await fetch(
+    `${resolveGitHubApiBase(resolvedOptions)}/repos/${repoRef.owner}/${repoRef.name}/pulls/${pullRequestNumber}/files?per_page=100`,
+    {
+      headers: getGitHubApiHeaders(resolvedOptions.token),
+      signal: resolvedOptions.signal,
+    },
+  );
+  await assertGitHubOk(response, "pull request files");
+  const payload: unknown = await response.json();
+  const parsed = z.array(PullRequestFileSchema).safeParse(payload);
+  if (!parsed.success) {
+    return [];
+  }
+  return parsed.data.map((file) => file.filename);
+}
+
+export async function postPullRequestReview(
+  repoRef: GitHubRepoRef,
+  pullRequestNumber: number,
+  commitSha: string,
+  body: string,
+  comments: PullRequestReviewCommentInput[],
+  options: GitHubFetchOptions = {},
+): Promise<void> {
+  if (!commitSha.trim() || comments.length === 0) {
+    await postPullRequestComment(repoRef, pullRequestNumber, body, options);
+    return;
+  }
+  const resolvedOptions = normalizeGitHubFetchOptions(options);
+  const response = await fetch(
+    `${resolveGitHubApiBase(resolvedOptions)}/repos/${repoRef.owner}/${repoRef.name}/pulls/${pullRequestNumber}/reviews`,
+    {
+      method: "POST",
+      headers: {
+        ...getGitHubApiHeaders(resolvedOptions.token),
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        commit_id: commitSha,
+        body: body.slice(0, 16000),
+        event: "COMMENT",
+        comments: comments.slice(0, 20).map((comment) => ({
+          path: comment.path,
+          line: comment.line,
+          side: "RIGHT",
+          body: comment.body,
+        })),
+      }),
+      signal: resolvedOptions.signal,
+    },
+  );
+  if (!response.ok) {
+    await postPullRequestComment(repoRef, pullRequestNumber, body, options);
+    return;
+  }
+}

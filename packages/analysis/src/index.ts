@@ -13,3 +13,6 @@ export * from "./risk-ranking.js";
 export * from "./pull-request-gate.js";
 export * from "./follow-up-copilot.js";
 export * from "./evidence-corpus.js";
+export * from "./language-detectors.js";
+export * from "./disposition.js";
+export * from "./sarif-export.js";

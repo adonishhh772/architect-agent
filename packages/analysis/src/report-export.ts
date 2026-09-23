@@ -16,6 +16,18 @@ export function reportToMarkdown(report: AnalysisReport): string {
   lines.push("## Disclaimer");
   lines.push(sanitizeMarkdownText(report.disclaimer));
   lines.push("");
+  lines.push("## What this repository is");
+  lines.push(sanitizeMarkdownText(report.architectureProfile?.purpose ?? report.architectureOverview ?? "No architecture summary was produced."));
+  if (report.architectureProfile) {
+    lines.push("");
+    lines.push(
+      `Languages: ${report.architectureProfile.languages.join(", ") || "none detected"}. Modules: ${report.architectureProfile.moduleCount}. HTTP entries: ${report.architectureProfile.apiEntryCount}. Data stores: ${report.architectureProfile.dataStoreCount}.`,
+    );
+    for (const highlight of report.architectureProfile.highlights) {
+      lines.push(`- ${sanitizeMarkdownText(highlight)}`);
+    }
+  }
+  lines.push("");
   lines.push("## Architecture overview");
   lines.push(sanitizeMarkdownText(report.architectureOverview ?? "No cartographer overview was produced."));
   lines.push("");

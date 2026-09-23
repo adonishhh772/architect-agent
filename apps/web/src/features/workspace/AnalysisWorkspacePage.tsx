@@ -1,4 +1,4 @@
-import type { AnalysisReport } from "@sentinel/schema";
+import { FINDING_DISPOSITION, type AnalysisReport, type AuditMemory } from "@sentinel/schema";
 import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -24,7 +24,9 @@ import { MaterialTextField } from "../../components/material/MaterialTextField";
 import { PageHero } from "../../components/layout/PageHero";
 import { PageSection } from "../../components/layout/PageSection";
 import { useAnalysisRunner } from "../analysis/useAnalysisRunner";
-import { exportReportHtml, exportReportJson, exportReportMarkdown } from "../export/reportExportActions";
+import { exportReportHtml, exportReportJson, exportReportMarkdown, exportReportSarif } from "../export/reportExportActions";
+import { ArchitectureOverview } from "../architecture/ArchitectureOverview";
+import { rememberDisposition } from "@sentinel/analysis";
 import { ArchitectureExplorer } from "../graph/ArchitectureExplorer";
 import { FindingDetailsPanel } from "../findings/FindingDetailsPanel";
 import { FindingsTable } from "../findings/FindingsTable";
@@ -298,6 +300,32 @@ export function AnalysisWorkspacePage(): JSX.Element {
     }
   };
 
+  const handleExportSarif = (): void => {
+    if (!report) {
+      return;
+    }
+    exportReportSarif(report);
+  };
+
+  const handleDispositionChange = (
+    stableKey: string,
+    disposition: (typeof FINDING_DISPOSITION)[keyof typeof FINDING_DISPOSITION],
+  ): void => {
+    setReport((current) => {
+      if (!current) {
+        return current;
+      }
+      const memory = rememberDisposition(current.memory ?? emptyDispositionMemory(current), stableKey, disposition);
+      return {
+        ...current,
+        memory,
+        findings: current.findings.map((finding) =>
+          finding.stableKey === stableKey ? { ...finding, disposition } : finding,
+        ),
+      };
+    });
+  };
+
   const handleExportHtml = (): void => {
     if (report) {
       exportReportHtml(report);
@@ -527,6 +555,14 @@ export function AnalysisWorkspacePage(): JSX.Element {
 
       {report && (
         <>
+          <PageSection
+            title="What this repository is"
+            description="Purpose, languages, and the architecture inferred from JavaScript, Python, and Go source."
+            icon={Map}
+            testId="repository-architecture"
+          >
+            <ArchitectureOverview report={report} />
+          </PageSection>
           <StrideThreatModelPanel
             report={report}
             onSelectFinding={handleSelectFinding}
@@ -583,7 +619,7 @@ export function AnalysisWorkspacePage(): JSX.Element {
                 onSelectFinding={setSelectedFindingId}
               />
             </PageSection>
-            <FindingDetailsPanel finding={selectedFinding} />
+            <FindingDetailsPanel finding={selectedFinding} onDispositionChange={handleDispositionChange} />
           </section>
 
           {store && (
@@ -634,6 +670,9 @@ export function AnalysisWorkspacePage(): JSX.Element {
               <MaterialButton variant="outlined" onClick={handleExportHtml}>
                 Export HTML
               </MaterialButton>
+              <MaterialButton variant="outlined" onClick={handleExportSarif}>
+                Export SARIF
+              </MaterialButton>
               <MaterialButton icon={<Database className="h-4 w-4" aria-hidden />} onClick={handlePersistReport}>
                 Save to IndexedDB
               </MaterialButton>
@@ -643,4 +682,20 @@ export function AnalysisWorkspacePage(): JSX.Element {
       )}
     </div>
   );
+}
+
+function emptyDispositionMemory(report: AnalysisReport): AuditMemory {
+  return {
+    repositoryKey: report.repository.url ?? report.repository.name ?? "repository",
+    commitSha: report.repository.commitSha,
+    filesRead: [],
+    filesPartial: [],
+    filesUnread: [],
+    openQuestions: [],
+    priorFindingKeys: [],
+    findingRecords: [],
+    pullRequestsReviewed: [],
+    dispositions: [],
+    updatedAt: new Date().toISOString(),
+  };
 }

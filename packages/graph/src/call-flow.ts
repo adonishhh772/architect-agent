@@ -6,6 +6,7 @@ import {
   type GraphEdge,
   type GraphNode,
 } from "@sentinel/schema";
+import { isGoPath, isJavaScriptPath, isPythonPath } from "./source-language.js";
 
 export interface ObservedDataFlowStep {
   role: (typeof DATA_FLOW_ROLE)[keyof typeof DATA_FLOW_ROLE];
@@ -54,19 +55,43 @@ const CALL_KEYWORDS = new Set([
   "of",
 ]);
 
-const SOURCE_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
+const JAVASCRIPT_SOURCES: Array<{ pattern: RegExp; label: string }> = [
   { pattern: /\b(?:req|request)\.(?:body|query|params)\b/, label: "HTTP request input" },
   { pattern: /\b(?:ctx|context)\.(?:request|body|query|params)\b/, label: "HTTP request input" },
   { pattern: /\bsearchParams\b/, label: "URL search parameters" },
   { pattern: /\bprocess\.argv\b/, label: "Process arguments" },
 ];
 
-const SINK_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
+const PYTHON_SOURCES: Array<{ pattern: RegExp; label: string }> = [
+  { pattern: /\brequest\.(?:args|form|json|data|values|GET|POST)\b/, label: "HTTP request input" },
+];
+
+const GO_SOURCES: Array<{ pattern: RegExp; label: string }> = [
+  { pattern: /\.FormValue\(|\.PostFormValue\(|\.URL\.Query\(/, label: "HTTP request input" },
+  { pattern: /\bc\.(?:Query|Param|PostForm)\(/, label: "HTTP request input" },
+];
+
+const JAVASCRIPT_SINKS: Array<{ pattern: RegExp; label: string }> = [
   { pattern: /\beval\s*\(|\bnew\s+Function\s*\(/, label: "dynamic code execution" },
-  { pattern: /innerHTML|dangerouslySetInnerHTML/, label: "HTML sink" },
+  { pattern: new RegExp(`${"inner"}${"HTML"}|${"dangerouslySet"}${"InnerHTML"}`), label: "HTML sink" },
   { pattern: /\$queryRaw|queryRawUnsafe|\.query\s*\(\s*`/, label: "SQL query sink" },
   { pattern: /\b(?:exec|execSync)\s*\(/, label: "command execution sink" },
   { pattern: /\bfetch\s*\(\s*[A-Za-z_$]|\baxios\.(?:get|post|put|patch|delete)\s*\(\s*[A-Za-z_$]/, label: "outbound request sink" },
+  { pattern: /path\.join\(\s*(?:req|request)/, label: "path traversal sink" },
+];
+
+const PYTHON_SINKS: Array<{ pattern: RegExp; label: string }> = [
+  { pattern: /\beval\s*\(|\bexec\s*\(/, label: "dynamic code execution" },
+  { pattern: /\bos\.system\s*\(|\bsubprocess\./, label: "command execution sink" },
+  { pattern: /\.execute\(\s*f["']/, label: "SQL query sink" },
+  { pattern: /\bpickle\.loads\s*\(|\byaml\.load\s*\(/, label: "deserialization sink" },
+  { pattern: /\bmark_safe\s*\(|\brender_template_string\s*\(/, label: "HTML sink" },
+];
+
+const GO_SINKS: Array<{ pattern: RegExp; label: string }> = [
+  { pattern: /\bexec\.Command\s*\(/, label: "command execution sink" },
+  { pattern: /\btemplate\.HTML\s*\(/, label: "HTML sink" },
+  { pattern: /\.(?:Query|Exec)\(\s*fmt\.Sprintf\s*\(/, label: "SQL query sink" },
 ];
 
 const FUNCTION_NAME_PATTERN =
@@ -95,10 +120,14 @@ interface FunctionSpan {
 }
 
 function isSourceFile(path: string): boolean {
-  return /\.(ts|tsx|js|jsx|mjs|cjs)$/.test(path);
+  return isJavaScriptPath(path) || isPythonPath(path) || isGoPath(path);
 }
 
-function readFunctionName(line: string): string | null {
+function readFunctionName(path: string, line: string): string | null {
+  if (isGoPath(path)) {
+    const match = /\bfunc\s+(?:\([^)]*\)\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*\(/.exec(line);
+    return match?.[1] ?? null;
+  }
   const match = FUNCTION_NAME_PATTERN.exec(line);
   FUNCTION_NAME_PATTERN.lastIndex = 0;
   const name = match?.[1] ?? match?.[2];
@@ -108,24 +137,29 @@ function readFunctionName(line: string): string | null {
   return name;
 }
 
-function readSource(line: string): string | null {
-  for (const source of SOURCE_PATTERNS) {
-    if (source.pattern.test(line)) {
-      source.pattern.lastIndex = 0;
-      return source.label;
-    }
-    source.pattern.lastIndex = 0;
+function patternsFor(path: string): {
+  sources: Array<{ pattern: RegExp; label: string }>;
+  sinks: Array<{ pattern: RegExp; label: string }>;
+} {
+  if (isPythonPath(path)) {
+    return { sources: PYTHON_SOURCES, sinks: PYTHON_SINKS };
   }
-  return null;
+  if (isGoPath(path)) {
+    return { sources: GO_SOURCES, sinks: GO_SINKS };
+  }
+  return { sources: JAVASCRIPT_SOURCES, sinks: JAVASCRIPT_SINKS };
 }
 
-function readSink(line: string): string | null {
-  for (const sink of SINK_PATTERNS) {
-    if (sink.pattern.test(line)) {
-      sink.pattern.lastIndex = 0;
-      return sink.label;
+function readLabeled(
+  line: string,
+  patterns: Array<{ pattern: RegExp; label: string }>,
+): string | null {
+  for (const item of patterns) {
+    if (item.pattern.test(line)) {
+      item.pattern.lastIndex = 0;
+      return item.label;
     }
-    sink.pattern.lastIndex = 0;
+    item.pattern.lastIndex = 0;
   }
   return null;
 }
@@ -165,7 +199,7 @@ function scanFunctions(path: string, content: string): FunctionSpan[] {
     const line = lines[index] ?? "";
     const lineNumber = index + 1;
     if (!current) {
-      const name = readFunctionName(line);
+      const name = readFunctionName(path, line);
       if (name) {
         current = {
           name,
@@ -181,11 +215,12 @@ function scanFunctions(path: string, content: string): FunctionSpan[] {
     }
 
     if (current) {
-      const sourceLabel = readSource(line);
+      const rules = patternsFor(path);
+      const sourceLabel = readLabeled(line, rules.sources);
       if (sourceLabel) {
         current.sources.push({ line: lineNumber, label: sourceLabel });
       }
-      const sinkLabel = readSink(line);
+      const sinkLabel = readLabeled(line, rules.sinks);
       if (sinkLabel) {
         current.sinks.push({ line: lineNumber, label: sinkLabel });
       }
@@ -214,6 +249,73 @@ function scanFunctions(path: string, content: string): FunctionSpan[] {
     spans.push(current);
   }
   return spans;
+}
+
+function scanPythonFunctions(path: string, content: string): FunctionSpan[] {
+  const lines = content.split("\n");
+  const completed: FunctionSpan[] = [];
+  const stack: Array<{ indent: number; span: FunctionSpan }> = [];
+  const rules = patternsFor(path);
+
+  const closeAtIndent = (indent: number, endLine: number): void => {
+    let top = stack[stack.length - 1];
+    while (top && top.indent >= indent) {
+      top.span.endLine = endLine;
+      completed.push(top.span);
+      stack.pop();
+      top = stack[stack.length - 1];
+    }
+  };
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    const lineNumber = index + 1;
+    const trimmed = line.trim();
+    if (trimmed.length === 0 || trimmed.startsWith("#")) {
+      continue;
+    }
+    const indent = line.length - line.trimStart().length;
+    closeAtIndent(indent, lineNumber - 1);
+    const defined = /^\s*def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/.exec(line);
+    if (defined?.[1]) {
+      stack.push({
+        indent,
+        span: {
+          name: defined[1],
+          path,
+          startLine: lineNumber,
+          endLine: lineNumber,
+          sources: [],
+          sinks: [],
+          calls: [],
+        },
+      });
+    }
+    for (const frame of stack) {
+      const sourceLabel = readLabeled(line, rules.sources);
+      if (sourceLabel) {
+        frame.span.sources.push({ line: lineNumber, label: sourceLabel });
+      }
+      const sinkLabel = readLabeled(line, rules.sinks);
+      if (sinkLabel) {
+        frame.span.sinks.push({ line: lineNumber, label: sinkLabel });
+      }
+      for (const callee of readCalls(line)) {
+        if (callee !== frame.span.name && !frame.span.calls.includes(callee)) {
+          frame.span.calls.push(callee);
+        }
+      }
+      frame.span.endLine = lineNumber;
+    }
+  }
+
+  let remaining = stack.pop();
+  while (remaining) {
+    remaining.span.endLine = lines.length;
+    completed.push(remaining.span);
+    remaining = stack.pop();
+  }
+  return completed;
 }
 
 function functionNodeId(span: FunctionSpan): string {
@@ -290,6 +392,10 @@ export function extractCallFlows(files: Map<string, string>, commitSha?: string)
   const spans: FunctionSpan[] = [];
   for (const [path, content] of files) {
     if (!isSourceFile(path)) {
+      continue;
+    }
+    if (isPythonPath(path)) {
+      spans.push(...scanPythonFunctions(path, content));
       continue;
     }
     spans.push(...scanFunctions(path, content));

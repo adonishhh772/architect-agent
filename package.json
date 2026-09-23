@@ -9,7 +9,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build -w @sentinel/schema && npm run build -w @sentinel/providers && npm run build -w @sentinel/ingestion && npm run build -w @sentinel/graph && npm run build -w @sentinel/analysis && npm run build -w @sentinel/web && npm run build -w @sentinel/cli",
+    "build": "npm run build -w @sentinel/schema && npm run build -w @sentinel/providers && npm run build -w @sentinel/ingestion && npm run build -w @sentinel/graph && npm run build -w @sentinel/analysis && npm run build -w @sentinel/web && npm run build -w @sentinel/cli && npm run build -w @sentinel/mcp",
     "test": "npm run build && npm run test:unit",
     "test:unit": "npm run test --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",

@@ -1,12 +1,15 @@
 import { z } from "zod";
 import {
   ATLAS_TECHNIQUE_LIST,
+  CWE_ID_LIST,
   DATA_FLOW_ROLE_LIST,
   FINDING_CATEGORY,
+  FINDING_DISPOSITION_LIST,
   FINDING_LIFECYCLE_LIST,
   FINDING_STATUS,
   OWASP_CATEGORY_LIST,
   RISK_DOMAIN_LIST,
+  SOURCE_LANGUAGE_LIST,
   STRIDE_CATEGORY,
 } from "./constants.js";
 import { EvidenceItemSchema, FileReferenceSchema } from "./evidence.js";
@@ -49,6 +52,10 @@ export const FindingSchema = z.object({
   owaspCategories: z.array(z.enum(OWASP_CATEGORY_LIST)).optional(),
   atlasTechniqueIds: z.array(z.enum(ATLAS_TECHNIQUE_LIST)).optional(),
   riskDomains: z.array(z.enum(RISK_DOMAIN_LIST)).optional(),
+  cweIds: z.array(z.enum(CWE_ID_LIST)).max(8).optional(),
+  language: z.enum(SOURCE_LANGUAGE_LIST).optional(),
+  disposition: z.enum(FINDING_DISPOSITION_LIST).optional(),
+  remediationDiff: z.string().max(8000).optional(),
   status: z.enum([
     FINDING_STATUS.CODE_SUPPORTED,
     FINDING_STATUS.PLAUSIBLE_THREAT,

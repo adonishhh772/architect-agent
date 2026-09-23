@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { FINDING_LIFECYCLE_LIST } from "./constants.js";
+import { FINDING_DISPOSITION_LIST, FINDING_LIFECYCLE_LIST } from "./constants.js";
 
 export const FindingRecordSchema = z.object({
   stableKey: z.string().min(1).max(300),
@@ -8,6 +8,14 @@ export const FindingRecordSchema = z.object({
 });
 
 export type FindingRecord = z.infer<typeof FindingRecordSchema>;
+
+export const FindingDispositionRecordSchema = z.object({
+  stableKey: z.string().min(1).max(300),
+  disposition: z.enum(FINDING_DISPOSITION_LIST),
+  note: z.string().max(2000).optional(),
+});
+
+export type FindingDispositionRecord = z.infer<typeof FindingDispositionRecordSchema>;
 
 export const AuditMemoryPullRequestSchema = z.object({
   number: z.number().int().positive(),
@@ -29,6 +37,7 @@ export const AuditMemorySchema = z.object({
   priorFindingKeys: z.array(z.string().max(300)).default([]),
   findingRecords: z.array(FindingRecordSchema).max(400).default([]),
   pullRequestsReviewed: z.array(AuditMemoryPullRequestSchema).default([]),
+  dispositions: z.array(FindingDispositionRecordSchema).max(400).default([]),
   updatedAt: z.string().datetime(),
 });
 

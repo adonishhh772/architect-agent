@@ -1,16 +1,25 @@
 import { z } from "zod";
-import { AGENT_RUN_STATUS, ANALYSIS_MODE, REPORT_SCHEMA_VERSION } from "./constants.js";
+import { AGENT_RUN_STATUS, ANALYSIS_MODE, REPORT_SCHEMA_VERSION, SOURCE_LANGUAGE_LIST } from "./constants.js";
 import { ArchitectureGraphSchema } from "./graph.js";
 import { AttackPathSchema, FindingSchema } from "./findings.js";
 import { CoverageReportSchema } from "./coverage.js";
 import { UserCorrectionSchema } from "./corrections.js";
 import { AuditMemorySchema } from "./memory.js";
 
+export const PullRequestInlineCommentSchema = z.object({
+  path: z.string().min(1).max(1000),
+  line: z.number().int().positive(),
+  body: z.string().min(1).max(2000),
+});
+
+export type PullRequestInlineComment = z.infer<typeof PullRequestInlineCommentSchema>;
+
 export const PullRequestReviewSchema = z.object({
   commentBody: z.string().max(16000),
   newFindingKeys: z.array(z.string().max(300)).default([]),
   fixedFindingKeys: z.array(z.string().max(300)).default([]),
   regressedFindingKeys: z.array(z.string().max(300)).default([]),
+  inlineComments: z.array(PullRequestInlineCommentSchema).max(20).default([]),
 });
 
 export type PullRequestReview = z.infer<typeof PullRequestReviewSchema>;
@@ -41,6 +50,19 @@ export const RepositoryMetadataSchema = z.object({
 
 export type RepositoryMetadata = z.infer<typeof RepositoryMetadataSchema>;
 
+export const ArchitectureProfileSchema = z.object({
+  purpose: z.string().max(4000),
+  languages: z.array(z.enum(SOURCE_LANGUAGE_LIST)).default([]),
+  moduleCount: z.number().int().nonnegative(),
+  apiEntryCount: z.number().int().nonnegative(),
+  dataStoreCount: z.number().int().nonnegative(),
+  externalSystemCount: z.number().int().nonnegative(),
+  trustBoundaryCount: z.number().int().nonnegative(),
+  highlights: z.array(z.string().max(300)).max(16).default([]),
+});
+
+export type ArchitectureProfile = z.infer<typeof ArchitectureProfileSchema>;
+
 export const AnalysisBudgetSchema = z.object({
   maxTokens: z.number().int().positive().optional(),
   maxRequests: z.number().int().positive().optional(),
@@ -65,6 +87,7 @@ export const AnalysisReportSchema = z.object({
   repository: RepositoryMetadataSchema,
   executiveSummary: z.string().max(16000),
   architectureOverview: z.string().max(16000).optional(),
+  architectureProfile: ArchitectureProfileSchema.optional(),
   agentTrace: z.array(AgentTraceEntrySchema).default([]),
   disclaimer: z.string().max(4000),
   graph: ArchitectureGraphSchema,

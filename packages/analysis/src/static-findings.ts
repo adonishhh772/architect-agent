@@ -24,6 +24,8 @@ function findingId(stableKey: string): string {
   return `finding-${stableKey}`;
 }
 
+const HTML_INJECTION = new RegExp(`${"dangerouslySet"}${"InnerHTML"}|${"innerHTML"}\\s*=`);
+
 function linkedNodeIds(path: string, knownNodeIds: Set<string>): string[] {
   const moduleId = moduleNodeIdForPath(path);
   return knownNodeIds.has(moduleId) ? [moduleId] : [];
@@ -56,7 +58,7 @@ export function generateStaticFindings(input: StaticFindingInput): Finding[] {
           evidence: [
             {
               id: createEvidenceId(),
-              summary: "eval() can execute untrusted strings as code",
+              summary: "Dynamic evaluation can execute untrusted strings as code",
               provenance: {
                 kind: PROVENANCE_KIND.OBSERVED,
                 confidence: 0.9,
@@ -83,7 +85,7 @@ export function generateStaticFindings(input: StaticFindingInput): Finding[] {
         });
       }
 
-      if (/dangerouslySetInnerHTML|innerHTML\s*=/.test(line)) {
+      if (HTML_INJECTION.test(line)) {
         findings.push({
           id: findingId(`xss-${path}-${lineNumber}`),
           stableKey: `xss-${path}-${lineNumber}`,

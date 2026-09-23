@@ -3,8 +3,10 @@ import {
   type AuditMemory,
   type Finding,
   type FindingRecord,
+  type PullRequestInlineComment,
   type PullRequestReview,
 } from "@sentinel/schema";
+import { isSuppressedDisposition } from "./disposition.js";
 
 const COMMENT_FINDING_LIMIT = 8;
 const RECORD_LIMIT = 400;
@@ -118,7 +120,31 @@ export function buildPullRequestReview(input: {
     newFindingKeys: input.lifecycle.newFindingKeys,
     fixedFindingKeys: input.lifecycle.fixedFindingKeys,
     regressedFindingKeys: input.lifecycle.regressedFindingKeys,
+    inlineComments: inlineCommentsFor(highlighted),
   };
+}
+
+function inlineCommentsFor(findings: Finding[]): PullRequestInlineComment[] {
+  const comments: PullRequestInlineComment[] = [];
+  for (const finding of findings) {
+    if (comments.length >= COMMENT_FINDING_LIMIT) {
+      break;
+    }
+    if (isSuppressedDisposition(finding.disposition)) {
+      continue;
+    }
+    const reference = finding.references[0];
+    if (!reference?.startLine) {
+      continue;
+    }
+    const diff = finding.remediationDiff ? `\n\nSuggested change:\n${finding.remediationDiff}` : "";
+    comments.push({
+      path: reference.path,
+      line: reference.startLine,
+      body: `**${finding.title}**\n\n${firstSentence(finding.mitigation)}${diff}`.slice(0, 2000),
+    });
+  }
+  return comments;
 }
 
 function priorLifecycle(memory: AuditMemory | undefined): Map<string, FindingRecord["lifecycle"]> {

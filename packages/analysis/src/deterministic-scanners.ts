@@ -1,9 +1,11 @@
 import { moduleNodeIdForPath } from "@sentinel/graph";
 import {
+  CWE_ID,
   FINDING_CATEGORY,
   FINDING_STATUS,
   OWASP_CATEGORY,
   RISK_DOMAIN,
+  SOURCE_LANGUAGE,
   STRIDE_CATEGORY,
   type ArchitectureGraph,
   type Finding,
@@ -256,6 +258,57 @@ interface ScannerDraft {
   likelihoodRationale: string;
 }
 
+function cweForStableKey(stableKey: string): NonNullable<Finding["cweIds"]> {
+  if (stableKey.startsWith(SCANNER_RULE.SQL_INJECTION)) {
+    return [CWE_ID.SQL_INJECTION];
+  }
+  if (stableKey.startsWith(SCANNER_RULE.COMMAND_INJECTION)) {
+    return [CWE_ID.COMMAND_INJECTION];
+  }
+  if (stableKey.startsWith(SCANNER_RULE.SSRF)) {
+    return [CWE_ID.SSRF];
+  }
+  if (stableKey.startsWith(SCANNER_RULE.MISSING_AUTH)) {
+    return [CWE_ID.MISSING_AUTHENTICATION];
+  }
+  if (stableKey.startsWith(SCANNER_RULE.SECRET_TOKEN) || stableKey.startsWith(SCANNER_RULE.SECRET_PRIVATE_KEY) || stableKey.startsWith(SCANNER_RULE.SECRET_ASSIGNMENT)) {
+    return [CWE_ID.HARDCODED_CREDENTIAL];
+  }
+  return [];
+}
+
+function remediationForStableKey(stableKey: string): string | undefined {
+  if (stableKey.startsWith(SCANNER_RULE.SQL_INJECTION)) {
+    return "- query text built with interpolation\n+ parameterized query or ORM builder";
+  }
+  if (stableKey.startsWith(SCANNER_RULE.COMMAND_INJECTION)) {
+    return "- process started from request data\n+ a fixed command and an argument array";
+  }
+  if (stableKey.startsWith(SCANNER_RULE.SSRF)) {
+    return "- outbound request target taken from the request\n+ an allow-listed destination host";
+  }
+  if (stableKey.startsWith(SCANNER_RULE.MISSING_AUTH)) {
+    return "- route with no guard\n+ route with an authentication guard";
+  }
+  if (stableKey.startsWith("secret-")) {
+    return "- credential literal in source\n+ load the credential from a secret manager";
+  }
+  return undefined;
+}
+
+function languageForPath(path: string): Finding["language"] {
+  if (/\.(ts|tsx|js|jsx|mjs|cjs)$/.test(path)) {
+    return SOURCE_LANGUAGE.JAVASCRIPT;
+  }
+  if (path.endsWith(".py")) {
+    return SOURCE_LANGUAGE.PYTHON;
+  }
+  if (path.endsWith(".go")) {
+    return SOURCE_LANGUAGE.GO;
+  }
+  return undefined;
+}
+
 function buildScannerFinding(draft: ScannerDraft): Finding {
   const moduleId = moduleNodeIdForPath(draft.path);
   return {
@@ -265,6 +318,9 @@ function buildScannerFinding(draft: ScannerDraft): Finding {
     category: FINDING_CATEGORY.SECURITY,
     strideCategories: draft.stride,
     owaspCategories: draft.owasp,
+    cweIds: cweForStableKey(draft.stableKey),
+    language: languageForPath(draft.path),
+    remediationDiff: remediationForStableKey(draft.stableKey),
     riskDomains: [RISK_DOMAIN.CYBERSECURITY],
     status: draft.status,
     affectedNodeIds: draft.knownNodeIds.has(moduleId) ? [moduleId] : [],

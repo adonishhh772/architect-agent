@@ -1,10 +1,29 @@
 import { z } from "zod";
 import {
+  ATLAS_TECHNIQUE_LIST,
+  DATA_FLOW_ROLE_LIST,
   FINDING_CATEGORY,
+  FINDING_LIFECYCLE_LIST,
   FINDING_STATUS,
+  OWASP_CATEGORY_LIST,
+  RISK_DOMAIN_LIST,
   STRIDE_CATEGORY,
 } from "./constants.js";
 import { EvidenceItemSchema, FileReferenceSchema } from "./evidence.js";
+
+export const DataFlowStepSchema = z.object({
+  role: z.enum(DATA_FLOW_ROLE_LIST),
+  path: z.string().min(1).max(1000),
+  line: z.number().int().positive().optional(),
+  label: z.string().min(1).max(300),
+});
+
+export const DataFlowSchema = z.object({
+  summary: z.string().min(1).max(2000),
+  steps: z.array(DataFlowStepSchema).min(1).max(12),
+});
+
+export type DataFlow = z.infer<typeof DataFlowSchema>;
 
 export const FindingSchema = z.object({
   id: z.string().min(1),
@@ -27,6 +46,9 @@ export const FindingSchema = z.object({
       ]),
     )
     .default([]),
+  owaspCategories: z.array(z.enum(OWASP_CATEGORY_LIST)).optional(),
+  atlasTechniqueIds: z.array(z.enum(ATLAS_TECHNIQUE_LIST)).optional(),
+  riskDomains: z.array(z.enum(RISK_DOMAIN_LIST)).optional(),
   status: z.enum([
     FINDING_STATUS.CODE_SUPPORTED,
     FINDING_STATUS.PLAUSIBLE_THREAT,
@@ -44,6 +66,13 @@ export const FindingSchema = z.object({
   existingControls: z.array(z.string()).default([]),
   counterevidence: z.array(z.string()).default([]),
   confidence: z.number().min(0).max(1),
+  impact: z.number().int().min(1).max(5).optional(),
+  likelihood: z.number().int().min(1).max(5).optional(),
+  riskScore: z.number().int().min(1).max(25).optional(),
+  remediationRank: z.number().int().positive().optional(),
+  lifecycle: z.enum(FINDING_LIFECYCLE_LIST).optional(),
+  duplicateOfStableKey: z.string().max(300).optional(),
+  dataFlow: DataFlowSchema.optional(),
   severityRationale: z.string().max(4000),
   likelihoodRationale: z.string().max(4000),
   assumptions: z.array(z.string()).default([]),

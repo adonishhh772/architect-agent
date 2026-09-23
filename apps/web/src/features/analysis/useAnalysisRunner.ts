@@ -1,6 +1,6 @@
 import { runAnalysisOrchestrator } from "@sentinel/analysis";
 import { createProviderAdapter } from "@sentinel/providers";
-import { ANALYSIS_MODE, type AnalysisReport, type ProviderSettings } from "@sentinel/schema";
+import { ANALYSIS_MODE, type AnalysisReport, type AuditMemory, type ProviderSettings } from "@sentinel/schema";
 import type { RepositoryStore } from "@sentinel/ingestion";
 import { useCallback, useRef, useState } from "react";
 import { getBrowserProviderSettingsForAi } from "../provider/aiBrowserTransport";
@@ -20,7 +20,12 @@ export function useAnalysisRunner(): {
     store: RepositoryStore;
     sourceLabel: string;
     repositoryUrl?: string;
+    owner?: string;
+    name?: string;
+    ref?: string;
     commitSha?: string;
+    githubToken?: string;
+    priorMemory?: AuditMemory;
     providerSettings: ProviderSettings;
     apiKey?: string;
     enableAi: boolean;
@@ -57,7 +62,9 @@ export function useAnalysisRunner(): {
           repository: {
             sourceType: input.repositoryUrl ? "github" : "zip",
             url: input.repositoryUrl,
-            name: input.sourceLabel,
+            owner: input.owner,
+            name: input.name ?? input.sourceLabel,
+            ref: input.ref,
             commitSha: input.commitSha,
             analyzedAt: new Date().toISOString(),
           },
@@ -71,6 +78,8 @@ export function useAnalysisRunner(): {
             maxRequests: input.maxRequests,
             maxTokens: input.maxTokens,
           },
+          githubToken: input.githubToken,
+          priorMemory: input.priorMemory,
         });
         return report;
       } catch (caught) {

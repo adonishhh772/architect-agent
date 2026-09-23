@@ -37,7 +37,7 @@ npm run cli -- \
   --repositoryUrl https://github.com/org/repo \
   --providerId openai \
   --modelId gpt-4o-mini \
-  --maxRequests 10 \
+  --maxRequests 24 \
   --maxTokens 100000 \
   --outputDir ./analysis-artifacts
 ```
@@ -80,11 +80,18 @@ Tests cover ZIP safety, provider JSON repair, prompt-injection sanitization, sta
 ## Capabilities matrix (honest)
 
 - Deep TS/JS route, dependency, AI-symbol, and data-store heuristics
-- STRIDE tagging on supported static and AI-security findings
-- Bounded investigation loop with constrained tools (browser + CLI)
-- No OSV/CVE advisory integration yet (dependency issues require future advisory adapter)
+- Multi-agent LangGraph audit shared by the browser and the Deep Runner CLI: full-repository reader, cartographer, STRIDE, OWASP Top 10 plus LLM Top 10, MITRE ATLAS, data risk, infrastructure risk, and open pull requests
+- Copilot skills (accuracy, full-repository reading, threat modeling, pull requests, memory) are applied on every specialist pass
+- A repository memory records files read, files still unread, open questions, and pull requests reviewed. The next run on the same repository loads it. The CLI writes `memory.json`
+- Investigation tools (read, search, routes, graph neighborhood) feed each specialist; a verifier checks citations and links findings to module nodes
+- Static rules for eval, HTML injection, secret defaults, secret logging, published compose ports, and committed `.env` files
+- Deterministic scanners for known credential patterns, missing route authentication, SQL and command interpolation, and request-controlled outbound calls. Matched secret values are omitted from findings
+- Lockfile advisory lookup through the public OSV API for npm, Python, and Go coordinates. The repository is not installed
+- Function-level source-to-sink chains for TypeScript and JavaScript, with impact, likelihood, risk score, and a ranked remediation list
+- Pull request review comment that marks findings new, fixed, or regressed against the previous snapshot. The CLI can post it with `--pullRequest` and `--postReview`
+- Follow-up copilot that re-reads files, callers, and data-flow edges after the audit
 - No runtime execution or IaC simulation
-- Browser AI limited by provider CORS policies
+- Browser AI limited by provider CORS policies. The dev server proxies OpenAI and DeepSeek; GitHub Pages calls providers directly from the browser
 
 ## Deployment (GitHub Pages)
 

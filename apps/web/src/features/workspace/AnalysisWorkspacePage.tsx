@@ -13,6 +13,7 @@ import {
   Map,
   Play,
   ScanSearch,
+  MessageSquare,
   ShieldAlert,
   SlidersHorizontal,
   Square,
@@ -29,7 +30,11 @@ import { FindingDetailsPanel } from "../findings/FindingDetailsPanel";
 import { FindingsTable } from "../findings/FindingsTable";
 import { RepositoryFileTree } from "../ingest/RepositoryFileTree";
 import { useRepositoryIngestion } from "../ingest/useRepositoryIngestion";
+import { parseGitHubRepositoryUrl } from "@sentinel/ingestion";
 import { StrideThreatModelPanel } from "../findings/StrideThreatModelPanel";
+import { FrameworkRiskPanel } from "../findings/FrameworkRiskPanel";
+import { PullRequestReview } from "../findings/PullRequestReview";
+import { FollowUpCopilot } from "../copilot/FollowUpCopilot";
 import { saveReportLocally } from "../persistence/indexedDbStore";
 import { canRunProviderInBrowser } from "../provider/aiBrowserTransport";
 import { useSession } from "../session/SessionProvider";
@@ -205,14 +210,21 @@ export function AnalysisWorkspacePage(): JSX.Element {
     if (!store) {
       return;
     }
-    setStatusMessage("Running AI threat model — static rules and provider investigation…");
+    setStatusMessage("Running full-repository threat model, including open pull requests when GitHub is available…");
+    const repoRef = repoUrl ? parseGitHubRepositoryUrl(repoUrl) : null;
+    const priorMemory = report?.memory && report.repository.url === repoUrl ? report.memory : undefined;
     setReport(null);
     try {
       const result = await runner.runBrowserAnalysis({
         store,
         sourceLabel,
         repositoryUrl: repoUrl || undefined,
+        owner: repoRef?.owner,
+        name: repoRef?.name,
+        ref: repoRef?.ref,
         commitSha,
+        githubToken: githubToken || undefined,
+        priorMemory,
         providerSettings: session.providerSettings,
         apiKey: session.getModelApiKey() ?? undefined,
         enableAi: true,
@@ -269,6 +281,9 @@ export function AnalysisWorkspacePage(): JSX.Element {
 
   const handleShowTrustBoundariesChange = (event: ChangeEvent<HTMLInputElement>): void => {
     setShowTrustBoundaries(event.target.checked);
+  };
+  const handleSelectFinding = (findingId: string): void => {
+    setSelectedFindingId(findingId);
   };
 
   const handleExportJson = (): void => {
@@ -366,7 +381,7 @@ export function AnalysisWorkspacePage(): JSX.Element {
 
         <PageSection
           title="Run analysis"
-          description="Always runs AI-assisted STRIDE threat modeling plus static rules. Requires vault, provider test, and transmission consent."
+          description="Runs the multi-agent audit: cartographer, STRIDE, OWASP, MITRE ATLAS, data, and infrastructure. Requires vault, provider test, and transmission consent."
           icon={ScanSearch}
         >
           <div className="flex flex-wrap gap-2">
@@ -417,7 +432,7 @@ export function AnalysisWorkspacePage(): JSX.Element {
           <div className="mt-6 rounded-2xl border border-[var(--md-outline)]/40 bg-[var(--md-surface-container-high)]/40 p-4">
             <p className="flex items-center gap-2 text-sm font-medium text-[var(--md-on-surface)]">
               <Bot className="h-4 w-4 text-[var(--md-primary)]" aria-hidden />
-              AI STRIDE threat modeling — multi-pass deep review (required)
+              Multi-agent audit — architecture, STRIDE, OWASP, ATLAS, data, infrastructure
             </p>
             {session.vaultStatus !== "unlocked" && (
               <p className="mt-2 flex items-center gap-2 text-sm text-[var(--md-on-surface-variant)]">
@@ -430,9 +445,10 @@ export function AnalysisWorkspacePage(): JSX.Element {
             )}
             <div className="mt-3 space-y-2 text-sm text-[var(--md-on-surface-variant)]">
               <p>
-                Full file manifest + prioritized snippets → <strong>{providerLabel}</strong> (
-                {aiBrowserReady ? "browser OK (dev proxy when needed)" : "not available in this browser context"}).
-                Runs one STRIDE category pass per request (up to your max requests budget).
+                Each specialist reads a targeted evidence pack with repository tools, then a verifier checks citations against the indexed snapshot.
+                Requests go to <strong>{providerLabel}</strong> (
+                {aiBrowserReady ? "browser OK, with the dev proxy when needed" : "not available in this browser context"}).
+                The same graph runs in this browser and in the Deep Runner CLI.
               </p>
               {!session.connectionTested && (
                 <p className="text-amber-600 dark:text-amber-300">Connection test required on Providers.</p>
@@ -513,12 +529,30 @@ export function AnalysisWorkspacePage(): JSX.Element {
         <>
           <StrideThreatModelPanel
             report={report}
-            onSelectFinding={(findingId) => setSelectedFindingId(findingId)}
+            onSelectFinding={handleSelectFinding}
           />
+          <FrameworkRiskPanel
+            report={report}
+            onSelectFinding={handleSelectFinding}
+          />
+          {report.pullRequestReview && (
+            <PageSection
+              title="Pull request review"
+              description="New, fixed, and regressed findings since the last snapshot. Copy the comment anywhere. Posting from this page works on the local dev server with a GitHub token; GitHub Pages should use the CLI."
+              icon={Github}
+            >
+              <PullRequestReview
+                review={report.pullRequestReview}
+                owner={report.repository.owner}
+                name={report.repository.name}
+                githubToken={githubToken}
+              />
+            </PageSection>
+          )}
 
           <PageSection
             title="Architecture map"
-            description="Folder overview and paginated module views with import relations. Re-run analysis after ingest to refresh the graph. Pair with STRIDE findings and the file tree for vulnerability review."
+            description="Folder overview and paginated module views with import relations. Findings that cite a source file are linked to that module."
             icon={Map}
           >
             <div className="mb-4 flex flex-wrap gap-4 text-sm text-[var(--md-on-surface)]">
@@ -551,6 +585,24 @@ export function AnalysisWorkspacePage(): JSX.Element {
             </PageSection>
             <FindingDetailsPanel finding={selectedFinding} />
           </section>
+
+          {store && (
+            <PageSection
+              title="Follow-up copilot"
+              description="Ask about callers, sinks, and the ranked findings without starting a new audit."
+              icon={MessageSquare}
+            >
+              <FollowUpCopilot
+                contents={store.contents}
+                graph={report.graph}
+                findings={report.findings}
+                providerSettings={session.providerSettings}
+                apiKey={session.getModelApiKey()}
+                transmissionConfirmed={session.aiTransmissionConfirmed}
+                browserReady={aiBrowserReady}
+              />
+            </PageSection>
+          )}
 
           <PageSection title="Coverage & export" icon={Database}>
             <p className="text-sm leading-relaxed text-[var(--md-on-surface-variant)]">{report.executiveSummary}</p>

@@ -20,6 +20,7 @@ export const GraphNodeSchema = z.object({
     GRAPH_NODE_KIND.RETRIEVAL_STORE,
     GRAPH_NODE_KIND.MEMORY,
     GRAPH_NODE_KIND.TRUST_BOUNDARY,
+    GRAPH_NODE_KIND.FUNCTION,
   ]),
   label: z.string().min(1).max(500),
   description: z.string().max(4000).optional(),

@@ -11,6 +11,8 @@ export const ToolName = {
   INSPECT_ROUTE: "inspectRoute",
   INSPECT_CONFIGURATION: "inspectConfiguration",
   GET_GRAPH_NEIGHBORHOOD: "getGraphNeighborhood",
+  FIND_CALLERS: "findCallers",
+  TRACE_DATA_FLOW: "traceDataFlow",
 } as const;
 
 export type ToolNameValue = (typeof ToolName)[keyof typeof ToolName];
@@ -50,6 +52,16 @@ export const InspectConfigurationArgsSchema = z.object({
 export const GetGraphNeighborhoodArgsSchema = z.object({
   nodeId: z.string().min(1).max(500),
   depth: z.number().int().min(1).max(3).default(1),
+});
+
+export const FindCallersArgsSchema = z.object({
+  symbol: z.string().min(1).max(200),
+  limit: z.number().int().min(1).max(20).default(10),
+});
+
+export const TraceDataFlowArgsSchema = z.object({
+  path: z.string().min(1).max(1000),
+  line: z.number().int().min(1).max(100_000).optional(),
 });
 
 export interface InvestigationToolContext {
@@ -195,6 +207,43 @@ export function executeInvestigationTool(
     case ToolName.GET_GRAPH_NEIGHBORHOOD: {
       const args = GetGraphNeighborhoodArgsSchema.parse(rawArgs);
       return getGraphNeighborhood(context.graph, args.nodeId, args.depth);
+    }
+    case ToolName.FIND_CALLERS: {
+      const args = FindCallersArgsSchema.parse(rawArgs);
+      const targets = context.graph.nodes.filter(
+        (node) => node.kind === "function" && node.label === args.symbol,
+      );
+      const targetIds = new Set(targets.map((node) => node.id));
+      const callers = context.graph.edges
+        .filter((edge) => edge.kind === "calls" && targetIds.has(edge.target))
+        .slice(0, args.limit)
+        .map((edge) => ({
+          source: edge.source,
+          target: edge.target,
+          label: edge.label ?? "",
+        }));
+      return { symbol: args.symbol, functions: targets.map((node) => node.metadata ?? {}), callers };
+    }
+    case ToolName.TRACE_DATA_FLOW: {
+      const args = TraceDataFlowArgsSchema.parse(rawArgs);
+      const functionIds = new Set(
+        context.graph.nodes
+          .filter((node) => node.kind === "function" && node.metadata?.path === args.path)
+          .map((node) => node.id),
+      );
+      const flows = context.graph.edges
+        .filter(
+          (edge) =>
+            edge.kind === "data_flow" &&
+            (functionIds.has(edge.source) || functionIds.has(edge.target)),
+        )
+        .slice(0, 12)
+        .map((edge) => ({
+          source: edge.source,
+          target: edge.target,
+          label: edge.label ?? "",
+        }));
+      return { path: args.path, line: args.line, flows };
     }
     default:
       return { error: "unknown_tool" };

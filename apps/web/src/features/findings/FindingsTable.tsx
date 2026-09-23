@@ -53,10 +53,12 @@ export function FindingsTable({
         <table className="min-w-full text-left text-sm">
           <thead className="bg-[var(--md-surface-container-high)]/80">
             <tr>
+              <th className="px-3 py-2">Rank</th>
               <th className="px-3 py-2">Title</th>
+              <th className="px-3 py-2">Risk</th>
+              <th className="px-3 py-2">Lifecycle</th>
               <th className="px-3 py-2">Category</th>
               <th className="px-3 py-2">Status</th>
-              <th className="px-3 py-2">Confidence</th>
             </tr>
           </thead>
           <tbody>
@@ -68,10 +70,12 @@ export function FindingsTable({
                 }`}
                 onClick={() => onSelectFinding(finding.id)}
               >
+                <td className="px-3 py-2">{finding.remediationRank ?? "—"}</td>
                 <td className="px-3 py-2">{finding.title}</td>
+                <td className="px-3 py-2">{finding.riskScore ?? "—"}</td>
+                <td className="px-3 py-2">{finding.lifecycle ?? "open"}</td>
                 <td className="px-3 py-2">{finding.category}</td>
                 <td className="px-3 py-2">{finding.status}</td>
-                <td className="px-3 py-2">{finding.confidence.toFixed(2)}</td>
               </tr>
             ))}
           </tbody>

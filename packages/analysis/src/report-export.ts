@@ -16,6 +16,21 @@ export function reportToMarkdown(report: AnalysisReport): string {
   lines.push("## Disclaimer");
   lines.push(sanitizeMarkdownText(report.disclaimer));
   lines.push("");
+  lines.push("## Architecture overview");
+  lines.push(sanitizeMarkdownText(report.architectureOverview ?? "No cartographer overview was produced."));
+  lines.push("");
+  if (report.agentTrace.length > 0) {
+    lines.push("## Agent trace");
+    for (const entry of report.agentTrace) {
+      lines.push(`- ${entry.agentId}: ${entry.status} (${entry.toolCallCount} tool calls) — ${sanitizeMarkdownText(entry.detail)}`);
+    }
+    lines.push("");
+  }
+  if (report.pullRequestReview) {
+    lines.push("## Pull request review");
+    lines.push(sanitizeMarkdownText(report.pullRequestReview.commentBody));
+    lines.push("");
+  }
   lines.push("## Findings");
   for (const finding of report.findings) {
     lines.push(`### ${sanitizeMarkdownText(finding.title)} (${finding.id})`);
@@ -24,6 +39,24 @@ export function reportToMarkdown(report: AnalysisReport): string {
     lines.push(`- Confidence: ${finding.confidence}`);
     if (finding.strideCategories.length > 0) {
       lines.push(`- STRIDE: ${finding.strideCategories.join(", ")}`);
+    }
+    if ((finding.owaspCategories ?? []).length > 0) {
+      lines.push(`- OWASP: ${(finding.owaspCategories ?? []).join(", ")}`);
+    }
+    if ((finding.atlasTechniqueIds ?? []).length > 0) {
+      lines.push(`- MITRE ATLAS: ${(finding.atlasTechniqueIds ?? []).join(", ")}`);
+    }
+    if ((finding.riskDomains ?? []).length > 0) {
+      lines.push(`- Risk domains: ${(finding.riskDomains ?? []).join(", ")}`);
+    }
+    if (finding.riskScore !== undefined) {
+      lines.push(`- Risk: ${finding.riskScore} (impact ${finding.impact ?? "-"}, likelihood ${finding.likelihood ?? "-"}, rank ${finding.remediationRank ?? "-"})`);
+    }
+    if (finding.lifecycle) {
+      lines.push(`- Lifecycle: ${finding.lifecycle}`);
+    }
+    if (finding.dataFlow) {
+      lines.push(`- Data flow: ${sanitizeMarkdownText(finding.dataFlow.summary)}`);
     }
     lines.push("");
     lines.push(sanitizeMarkdownText(finding.scenario));

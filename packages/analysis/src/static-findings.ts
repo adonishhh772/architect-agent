@@ -1,7 +1,11 @@
+import { moduleNodeIdForPath } from "@sentinel/graph";
 import {
+  ATLAS_TECHNIQUE,
   FINDING_CATEGORY,
   FINDING_STATUS,
+  OWASP_CATEGORY,
   PROVENANCE_KIND,
+  RISK_DOMAIN,
   STRIDE_CATEGORY,
   type ArchitectureGraph,
   type Finding,
@@ -20,8 +24,14 @@ function findingId(stableKey: string): string {
   return `finding-${stableKey}`;
 }
 
+function linkedNodeIds(path: string, knownNodeIds: Set<string>): string[] {
+  const moduleId = moduleNodeIdForPath(path);
+  return knownNodeIds.has(moduleId) ? [moduleId] : [];
+}
+
 export function generateStaticFindings(input: StaticFindingInput): Finding[] {
   const findings: Finding[] = [];
+  const knownNodeIds = new Set(input.graph.nodes.map((node) => node.id));
 
   for (const [path, content] of input.contents) {
     const lines = content.split("\n");
@@ -36,8 +46,10 @@ export function generateStaticFindings(input: StaticFindingInput): Finding[] {
           title: "Dynamic code execution via eval",
           category: FINDING_CATEGORY.SECURITY,
           strideCategories: [STRIDE_CATEGORY.TAMPERING, STRIDE_CATEGORY.ELEVATION_OF_PRIVILEGE],
+          owaspCategories: [OWASP_CATEGORY.INJECTION],
+          riskDomains: [RISK_DOMAIN.CYBERSECURITY],
           status: FINDING_STATUS.CODE_SUPPORTED,
-          affectedNodeIds: [],
+          affectedNodeIds: linkedNodeIds(path, knownNodeIds),
           affectedAssetSummary: path,
           commitSha: input.commitSha,
           references: [{ path, startLine: lineNumber, endLine: lineNumber, commitSha: input.commitSha }],
@@ -78,8 +90,10 @@ export function generateStaticFindings(input: StaticFindingInput): Finding[] {
           title: "Potential DOM XSS via HTML injection",
           category: FINDING_CATEGORY.SECURITY,
           strideCategories: [STRIDE_CATEGORY.TAMPERING, STRIDE_CATEGORY.INFORMATION_DISCLOSURE],
+          owaspCategories: [OWASP_CATEGORY.INJECTION],
+          riskDomains: [RISK_DOMAIN.CYBERSECURITY],
           status: FINDING_STATUS.PLAUSIBLE_THREAT,
-          affectedNodeIds: [],
+          affectedNodeIds: linkedNodeIds(path, knownNodeIds),
           affectedAssetSummary: path,
           commitSha: input.commitSha,
           references: [{ path, startLine: lineNumber, endLine: lineNumber, commitSha: input.commitSha }],
@@ -107,8 +121,11 @@ export function generateStaticFindings(input: StaticFindingInput): Finding[] {
           title: "Hardcoded fallback secret or credential default",
           category: FINDING_CATEGORY.SECURITY,
           strideCategories: [STRIDE_CATEGORY.INFORMATION_DISCLOSURE, STRIDE_CATEGORY.SPOOFING],
+          owaspCategories: [OWASP_CATEGORY.CRYPTOGRAPHIC_FAILURES, OWASP_CATEGORY.AUTHENTICATION_FAILURES],
+          atlasTechniqueIds: [ATLAS_TECHNIQUE.UNSECURED_CREDENTIALS],
+          riskDomains: [RISK_DOMAIN.CYBERSECURITY, RISK_DOMAIN.DATA],
           status: FINDING_STATUS.CODE_SUPPORTED,
-          affectedNodeIds: [],
+          affectedNodeIds: linkedNodeIds(path, knownNodeIds),
           affectedAssetSummary: path,
           commitSha: input.commitSha,
           references: [{ path, startLine: lineNumber, endLine: lineNumber }],
@@ -137,8 +154,10 @@ export function generateStaticFindings(input: StaticFindingInput): Finding[] {
           title: "Unbounded loop may block event loop or agent runtime",
           category: FINDING_CATEGORY.ARCHITECTURE,
           strideCategories: [STRIDE_CATEGORY.DENIAL_OF_SERVICE],
+          owaspCategories: [OWASP_CATEGORY.INSECURE_DESIGN],
+          riskDomains: [RISK_DOMAIN.CYBERSECURITY],
           status: FINDING_STATUS.ARCHITECTURE_CONCERN,
-          affectedNodeIds: [],
+          affectedNodeIds: linkedNodeIds(path, knownNodeIds),
           affectedAssetSummary: path,
           commitSha: input.commitSha,
           references: [{ path, startLine: lineNumber, endLine: lineNumber }],
@@ -167,8 +186,11 @@ export function generateStaticFindings(input: StaticFindingInput): Finding[] {
           title: "AI tool invocation may lack explicit user-level authorization",
           category: FINDING_CATEGORY.AI_SECURITY,
           strideCategories: [STRIDE_CATEGORY.ELEVATION_OF_PRIVILEGE, STRIDE_CATEGORY.TAMPERING],
+          owaspCategories: [OWASP_CATEGORY.LLM_EXCESSIVE_AGENCY],
+          atlasTechniqueIds: [ATLAS_TECHNIQUE.AI_AGENT_TOOL_INVOCATION],
+          riskDomains: [RISK_DOMAIN.AI_EXECUTION],
           status: FINDING_STATUS.PLAUSIBLE_THREAT,
-          affectedNodeIds: [],
+          affectedNodeIds: linkedNodeIds(path, knownNodeIds),
           affectedAssetSummary: path,
           commitSha: input.commitSha,
           references: [{ path, startLine: lineNumber, endLine: lineNumber }],
@@ -203,6 +225,8 @@ export function generateStaticFindings(input: StaticFindingInput): Finding[] {
       title: "HTTP entry points detected without obvious auth middleware module",
       category: FINDING_CATEGORY.ARCHITECTURE,
       strideCategories: [STRIDE_CATEGORY.SPOOFING, STRIDE_CATEGORY.ELEVATION_OF_PRIVILEGE],
+      owaspCategories: [OWASP_CATEGORY.BROKEN_ACCESS_CONTROL, OWASP_CATEGORY.AUTHENTICATION_FAILURES],
+      riskDomains: [RISK_DOMAIN.CYBERSECURITY],
       status: FINDING_STATUS.INSUFFICIENT_EVIDENCE,
       affectedNodeIds: apiNodes.map((node) => node.id),
       affectedAssetSummary: "API entry points",
@@ -225,7 +249,152 @@ export function generateStaticFindings(input: StaticFindingInput): Finding[] {
     });
   }
 
+  findings.push(...scanDeploymentAndDataRisks(input, knownNodeIds));
   return dedupeFindings(findings);
+}
+
+const PUBLISHED_PORT_LINE = /^\s*-\s*["']?\d{2,5}:\d{2,5}/;
+const SECRET_LOG_LINE = /console\.(log|debug|info|warn)\([^)]*(password|secret|token|apiKey|credential)/i;
+const COMPOSE_FILE_NAME = /docker-compose[^/]*\.ya?ml$/i;
+
+function scanDeploymentAndDataRisks(input: StaticFindingInput, knownNodeIds: Set<string>): Finding[] {
+  const findings: Finding[] = [];
+  for (const [path, content] of input.contents) {
+    const baseName = path.split("/").pop() ?? path;
+    if (baseName === ".env") {
+      findings.push(buildStaticFinding({
+        stableKey: `env-file-${path}`,
+        title: "Environment file with possible secrets is in the repository snapshot",
+        category: FINDING_CATEGORY.SECURITY,
+        strideCategories: [STRIDE_CATEGORY.INFORMATION_DISCLOSURE],
+        owaspCategories: [OWASP_CATEGORY.CRYPTOGRAPHIC_FAILURES, OWASP_CATEGORY.SECURITY_MISCONFIGURATION],
+        atlasTechniqueIds: [ATLAS_TECHNIQUE.UNSECURED_CREDENTIALS],
+        riskDomains: [RISK_DOMAIN.DATA, RISK_DOMAIN.INFRASTRUCTURE],
+        status: FINDING_STATUS.CODE_SUPPORTED,
+        path,
+        lineNumber: 1,
+        knownNodeIds,
+        commitSha: input.commitSha,
+        scenario: "A .env file is part of the indexed snapshot. Credentials in that file can ship with the repository or image.",
+        mitigation: "Remove .env from the repository and load secrets from a managed store at deploy time.",
+        confidence: 0.8,
+        severityRationale: "Repository copies of environment files are a common credential leak.",
+        likelihoodRationale: "Certain if the file is committed or included in the upload.",
+      }));
+    }
+
+    if (!COMPOSE_FILE_NAME.test(path)) {
+      continue;
+    }
+    const lines = content.split("\n");
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+      const line = lines[lineIndex] ?? "";
+      if (!PUBLISHED_PORT_LINE.test(line)) {
+        continue;
+      }
+      findings.push(buildStaticFinding({
+        stableKey: `published-port-${path}-${lineIndex + 1}`,
+        title: "Compose file publishes a container port on the host",
+        category: FINDING_CATEGORY.SECURITY,
+        strideCategories: [STRIDE_CATEGORY.INFORMATION_DISCLOSURE, STRIDE_CATEGORY.ELEVATION_OF_PRIVILEGE],
+        owaspCategories: [OWASP_CATEGORY.SECURITY_MISCONFIGURATION],
+        riskDomains: [RISK_DOMAIN.INFRASTRUCTURE],
+        status: FINDING_STATUS.CODE_SUPPORTED,
+        path,
+        lineNumber: lineIndex + 1,
+        knownNodeIds,
+        commitSha: input.commitSha,
+        scenario: "A published host port makes that service reachable outside the compose network wherever the host is reachable.",
+        mitigation: "Prefer Docker-network expose for internal services. Publish a port only through an authenticated edge.",
+        confidence: 0.75,
+        severityRationale: "Exposed data stores and admin ports are a frequent deployment incident.",
+        likelihoodRationale: "Depends on whether the host interface is reachable. Confirm the target environment.",
+      }));
+    }
+  }
+
+  for (const [path, content] of input.contents) {
+    const lines = content.split("\n");
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+      const line = lines[lineIndex] ?? "";
+      if (!SECRET_LOG_LINE.test(line)) {
+        continue;
+      }
+      findings.push(buildStaticFinding({
+        stableKey: `secret-log-${path}-${lineIndex + 1}`,
+        title: "Possible secret written to application logs",
+        category: FINDING_CATEGORY.SECURITY,
+        strideCategories: [STRIDE_CATEGORY.INFORMATION_DISCLOSURE],
+        owaspCategories: [OWASP_CATEGORY.LOGGING_FAILURES, OWASP_CATEGORY.CRYPTOGRAPHIC_FAILURES],
+        atlasTechniqueIds: [ATLAS_TECHNIQUE.LLM_DATA_LEAKAGE],
+        riskDomains: [RISK_DOMAIN.DATA],
+        status: FINDING_STATUS.PLAUSIBLE_THREAT,
+        path,
+        lineNumber: lineIndex + 1,
+        knownNodeIds,
+        commitSha: input.commitSha,
+        scenario: "Logging a password, token, or secret can copy it into log storage that has a wider audience than the application.",
+        mitigation: "Log event identifiers. Keep credentials out of log lines and error messages.",
+        confidence: 0.7,
+        severityRationale: "Credential leakage through logs is durable and often retained.",
+        likelihoodRationale: "Confirm the interpolated value is a secret and that the log sink is retained.",
+      }));
+    }
+  }
+
+  return findings;
+}
+
+interface StaticFindingDraft {
+  stableKey: string;
+  title: string;
+  category: Finding["category"];
+  strideCategories: Finding["strideCategories"];
+  owaspCategories?: Finding["owaspCategories"];
+  atlasTechniqueIds?: Finding["atlasTechniqueIds"];
+  riskDomains?: Finding["riskDomains"];
+  status: Finding["status"];
+  path: string;
+  lineNumber: number;
+  knownNodeIds: Set<string>;
+  commitSha?: string;
+  scenario: string;
+  mitigation: string;
+  confidence: number;
+  severityRationale: string;
+  likelihoodRationale: string;
+}
+
+function buildStaticFinding(draft: StaticFindingDraft): Finding {
+  return {
+    id: findingId(draft.stableKey),
+    stableKey: draft.stableKey,
+    title: draft.title,
+    category: draft.category,
+    strideCategories: draft.strideCategories,
+    owaspCategories: draft.owaspCategories,
+    atlasTechniqueIds: draft.atlasTechniqueIds,
+    riskDomains: draft.riskDomains,
+    status: draft.status,
+    affectedNodeIds: linkedNodeIds(draft.path, draft.knownNodeIds),
+    affectedAssetSummary: draft.path,
+    commitSha: draft.commitSha,
+    references: [{ path: draft.path, startLine: draft.lineNumber, endLine: draft.lineNumber, commitSha: draft.commitSha }],
+    evidence: [],
+    scenario: draft.scenario,
+    preconditions: ["The indexed file is part of the deployed system"],
+    trustBoundaryCrossings: [],
+    existingControls: [],
+    counterevidence: [],
+    confidence: draft.confidence,
+    severityRationale: draft.severityRationale,
+    likelihoodRationale: draft.likelihoodRationale,
+    assumptions: ["Static pattern match; runtime configuration may differ"],
+    openQuestions: [],
+    mitigation: draft.mitigation,
+    relatedFindingIds: [],
+    attackPathIds: [],
+  };
 }
 
 function dedupeFindings(findings: Finding[]): Finding[] {

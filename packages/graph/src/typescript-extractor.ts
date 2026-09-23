@@ -5,6 +5,7 @@ import {
   type GraphEdge,
   type GraphNode,
 } from "@sentinel/schema";
+import { extractCallFlows } from "./call-flow.js";
 import { extractImportEdges } from "./import-graph.js";
 
 export interface ExtractionInput {
@@ -46,7 +47,16 @@ function makeProvenance(
   };
 }
 
+const MODULE_NODE_PREFIX = "module";
+
+export function moduleNodeIdForPath(filePath: string): string {
+  return `${MODULE_NODE_PREFIX}:${filePath.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+}
+
 function nodeId(prefix: string, key: string): string {
+  if (prefix === MODULE_NODE_PREFIX) {
+    return moduleNodeIdForPath(key);
+  }
   return `${prefix}:${key.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
 }
 
@@ -250,6 +260,12 @@ export function extractArchitectureFromTypeScript(
     moduleNodeId: (path) => nodeId("module", path),
   });
   edges.push(...importEdges);
+
+  const callFlows = extractCallFlows(input.files, input.commitSha);
+  for (const node of callFlows.nodes) {
+    addNode(node);
+  }
+  edges.push(...callFlows.edges);
 
   return { nodes, edges };
 }

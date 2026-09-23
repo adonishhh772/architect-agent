@@ -10,7 +10,7 @@ Evidence-backed architecture and security analysis for software repositories, in
 | --- | --- | --- |
 | Host | Static GitHub Pages UI | Node 20 runner |
 | Repository access | Public GitHub API or ZIP upload | GitHub URL + optional `GITHUB_TOKEN` |
-| AI providers | Browser-callable only (Gemini documented as CORS-capable; others typically blocked) | OpenAI, Anthropic, Gemini, DeepSeek, OpenAI-compatible |
+| AI providers | Gemini and DeepSeek from the browser. OpenAI uses the local dev proxy | OpenAI, Anthropic, Gemini, DeepSeek, OpenAI-compatible |
 | Credentials | In-memory session only | `SENTINEL_API_KEY`, optional `SENTINEL_API_ENDPOINT` |
 | Persistence | Optional IndexedDB reports (secrets stripped) | JSON + Markdown artifacts |
 | Background jobs | No (stops when tab closes) | Manual `workflow_dispatch` |
@@ -91,7 +91,7 @@ Tests cover ZIP safety, provider JSON repair, prompt-injection sanitization, sta
 - Pull request review comment that marks findings new, fixed, or regressed against the previous snapshot. The CLI can post it with `--pullRequest` and `--postReview`
 - Follow-up copilot that re-reads files, callers, and data-flow edges after the audit
 - No runtime execution or IaC simulation
-- Browser AI limited by provider CORS policies. The dev server proxies OpenAI and DeepSeek; GitHub Pages calls providers directly from the browser
+- Browser AI calls Gemini and DeepSeek directly, including on GitHub Pages. The dev server proxies OpenAI and DeepSeek on localhost
 
 ## Deployment (GitHub Pages)
 

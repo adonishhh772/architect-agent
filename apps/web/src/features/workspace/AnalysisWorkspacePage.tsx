@@ -130,7 +130,7 @@ export function AnalysisWorkspacePage(): JSX.Element {
           : !session.aiTransmissionConfirmed
             ? "Confirm AI transmission below."
             : !aiBrowserReady
-              ? `${providerLabel} cannot call the API from the browser on this host. Use Gemini, local dev proxy (DeepSeek/OpenAI on localhost), or Deep Runner.`
+              ? `${providerLabel} cannot call the API from the browser on this host. Use Gemini or DeepSeek, the local dev proxy for OpenAI, or Deep Runner.`
               : null;
 
   const persistIndexedRepository = async (

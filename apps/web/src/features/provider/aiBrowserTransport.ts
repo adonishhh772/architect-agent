@@ -8,7 +8,7 @@ function isLocalDevHost(): boolean {
 }
 
 export function canRunProviderInBrowser(providerId: ProviderSettings["providerId"]): boolean {
-  if (providerId === PROVIDER_ID.GEMINI) {
+  if (providerId === PROVIDER_ID.GEMINI || providerId === PROVIDER_ID.DEEPSEEK) {
     return true;
   }
   if (!isLocalDevHost()) {

@@ -37,11 +37,13 @@ export function getProviderCapabilities(
       };
     case PROVIDER_ID.DEEPSEEK:
       return {
-        browserCallable: false,
+        browserCallable: true,
         structuredOutput: true,
         modelDiscovery: true,
         toolCalling: true,
-        notes: ["DeepSeek uses an OpenAI-compatible API; browser CORS is typically blocked."],
+        notes: [
+          "DeepSeek is called directly from the browser, including GitHub Pages. The API key is visible to this browser session.",
+        ],
       };
     case PROVIDER_ID.OPENAI_COMPATIBLE:
       return {

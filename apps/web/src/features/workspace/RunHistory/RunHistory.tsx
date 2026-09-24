@@ -1,6 +1,7 @@
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { PersistedReportRecord } from "../../persistence/indexedDbStore";
+import { DELETE_WORKSPACE_LABEL, DELETING_WORKSPACE_LABEL } from "../workspaceView";
 import {
   findingCountLabel,
   HIGH_FINDING_RISK,
@@ -15,6 +16,8 @@ interface RunHistoryProps {
   selectedRunId: string | null;
   error: string | null;
   onSelectRun: (runId: string) => void;
+  onDeleteRun: (runId: string) => void;
+  deletingRunId: string | null;
   openRunContent: ReactNode | null;
 }
 
@@ -23,6 +26,8 @@ export function RunHistory({
   selectedRunId,
   error,
   onSelectRun,
+  onDeleteRun,
+  deletingRunId,
   openRunContent,
 }: RunHistoryProps): JSX.Element {
   return (
@@ -44,6 +49,8 @@ export function RunHistory({
               run={run}
               selected={run.id === selectedRunId}
               onSelectRun={onSelectRun}
+              onDeleteRun={onDeleteRun}
+              deleting={deletingRunId === run.id}
               openRunContent={run.id === selectedRunId ? openRunContent : null}
             />
           ))}
@@ -57,15 +64,28 @@ interface RunHistoryItemProps {
   run: PersistedReportRecord;
   selected: boolean;
   onSelectRun: (runId: string) => void;
+  onDeleteRun: (runId: string) => void;
+  deleting: boolean;
   openRunContent: ReactNode | null;
 }
 
-function RunHistoryItem({ run, selected, onSelectRun, openRunContent }: RunHistoryItemProps): JSX.Element {
+function RunHistoryItem({
+  run,
+  selected,
+  onSelectRun,
+  onDeleteRun,
+  deleting,
+  openRunContent,
+}: RunHistoryItemProps): JSX.Element {
   const summary = summarizeWorkspaceRun(run);
   const analyzedAt = formatRunTime(summary.analyzedAt);
 
   const handleSelect = (): void => {
     onSelectRun(run.id);
+  };
+
+  const handleDelete = (): void => {
+    onDeleteRun(run.id);
   };
 
   return (
@@ -76,9 +96,10 @@ function RunHistoryItem({ run, selected, onSelectRun, openRunContent }: RunHisto
           : "border-[var(--md-outline)]/30 bg-[var(--md-surface-container-high)]/40"
       }`}
     >
+      <div className="flex items-start">
       <button
         type="button"
-        className="flex w-full items-start gap-3 px-4 py-4 text-left"
+        className="flex min-w-0 flex-1 items-start gap-3 px-4 py-4 text-left"
         data-testid={`run-history-${run.id}`}
         aria-expanded={selected}
         onClick={handleSelect}
@@ -99,6 +120,18 @@ function RunHistoryItem({ run, selected, onSelectRun, openRunContent }: RunHisto
           </span>
         </span>
       </button>
+      <button
+        type="button"
+        className="mr-3 mt-3 inline-flex shrink-0 items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-[var(--color-neon-pink)] hover:bg-[var(--color-neon-pink)]/10 disabled:opacity-50"
+        data-testid={`delete-workspace-${run.id}`}
+        aria-label={`${DELETE_WORKSPACE_LABEL} ${summary.title}`}
+        disabled={deleting}
+        onClick={handleDelete}
+      >
+        <Trash2 className="h-4 w-4" aria-hidden />
+        {deleting ? DELETING_WORKSPACE_LABEL : DELETE_WORKSPACE_LABEL}
+      </button>
+      </div>
       {selected && openRunContent && (
         <div className="border-t border-[var(--md-outline)]/25 px-4 py-5" data-testid={`run-report-${run.id}`}>
           {openRunContent}

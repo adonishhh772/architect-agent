@@ -15,6 +15,7 @@ import {
   ScanSearch,
   SlidersHorizontal,
   Square,
+  Trash2,
   Upload,
 } from "lucide-react";
 import { MaterialButton } from "../../components/material/MaterialButton";
@@ -29,7 +30,7 @@ import { REPORT_SECTION } from "../../components/layout/ReportAccordion";
 import { OpenWorkspaceReport } from "./OpenWorkspaceReport";
 import { useRepositoryIngestion } from "../ingest/useRepositoryIngestion";
 import { parseGitHubRepositoryUrl } from "@sentinel/ingestion";
-import { listSavedReports, saveReportLocally, type PersistedReportRecord } from "../persistence/indexedDbStore";
+import { deleteSavedReport, listSavedReports, saveReportLocally, type PersistedReportRecord } from "../persistence/indexedDbStore";
 import type { AgentWorkItem } from "../analysis/AgentActivityPanel/agentWorkState";
 import { RunHistory } from "./RunHistory";
 import { WorkspaceJourney } from "./WorkspaceJourney";
@@ -40,8 +41,14 @@ import { clearWorkspaceSession, loadWorkspaceSession, saveWorkspaceSession } fro
 import { indexedStoreMatchesReport } from "./workspaceRunSummary";
 import {
   BACK_TO_WORKSPACES_LABEL,
+  DELETE_WORKSPACE_BUSY_MESSAGE,
+  DELETING_WORKSPACE_LABEL,
+  deleteWorkspaceConfirmMessage,
   INSPECT_ANOTHER_WORKSPACE_LABEL,
   nextOpenRunId,
+  REMOVE_INDEXED_WORKSPACE_CONFIRM,
+  REMOVE_INDEXED_WORKSPACE_LABEL,
+  shouldClearOpenWorkspace,
   WORKSPACE_VIEW,
   type WorkspaceViewMode,
 } from "./workspaceView";
@@ -90,6 +97,8 @@ export function AnalysisWorkspacePage(): JSX.Element {
   const [savedRuns, setSavedRuns] = useState<PersistedReportRecord[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [workspaceView, setWorkspaceView] = useState<WorkspaceViewMode>(WORKSPACE_VIEW.LIST);
+  const [deletingRunId, setDeletingRunId] = useState<string | null>(null);
+  const [removingIndexedWorkspace, setRemovingIndexedWorkspace] = useState(false);
   const [openedAgentWork, setOpenedAgentWork] = useState<AgentWorkItem[]>([]);
   const [runListError, setRunListError] = useState<string | null>(null);
 
@@ -415,6 +424,100 @@ export function AnalysisWorkspacePage(): JSX.Element {
     setWorkspaceView(WORKSPACE_VIEW.INSPECT);
   };
 
+  const handleDeleteRun = (runId: string): void => {
+    const selected = savedRuns.find((run) => run.id === runId);
+    if (!selected) {
+      setRunListError("That workspace is no longer saved in this browser.");
+      return;
+    }
+    if (runner.isRunning || ingestion.isLoading) {
+      setRunListError(DELETE_WORKSPACE_BUSY_MESSAGE);
+      return;
+    }
+    if (deletingRunId) {
+      return;
+    }
+    const confirmed = window.confirm(deleteWorkspaceConfirmMessage(selected.report.title));
+    if (!confirmed) {
+      return;
+    }
+    void deleteWorkspace(selected);
+  };
+
+  const deleteWorkspace = async (selected: PersistedReportRecord): Promise<void> => {
+    setDeletingRunId(selected.id);
+    setRunListError(null);
+    try {
+      await deleteSavedReport(selected.id);
+      if (shouldClearOpenWorkspace(selectedRunId, selected.id)) {
+        setSelectedRunId(null);
+        setReport(null);
+        setOpenedAgentWork([]);
+        setSelectedFindingId(undefined);
+      }
+      await refreshSavedRuns();
+      try {
+        await forgetDeletedReportFromSession(selected.id);
+      } catch {
+        setRunListError("The report was deleted, but this browser may restore it on the next visit.");
+        return;
+      }
+      setStatusMessage(`Deleted “${selected.report.title}”.`);
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Could not delete that workspace.";
+      setRunListError(message);
+    } finally {
+      setDeletingRunId(null);
+    }
+  };
+
+  const forgetDeletedReportFromSession = async (reportId: string): Promise<void> => {
+    const snapshot = await loadWorkspaceSession();
+    if (!snapshot || snapshot.lastReport?.id !== reportId) {
+      return;
+    }
+    await saveWorkspaceSession({
+      store: snapshot.store,
+      sourceLabel: snapshot.sourceLabel,
+      repoUrl: snapshot.repoUrl,
+      commitSha: snapshot.commitSha,
+      lastReport: null,
+    });
+  };
+
+  const handleRemoveIndexedWorkspace = (): void => {
+    if (runner.isRunning || ingestion.isLoading) {
+      setRunListError(DELETE_WORKSPACE_BUSY_MESSAGE);
+      return;
+    }
+    if (removingIndexedWorkspace) {
+      return;
+    }
+    const confirmed = window.confirm(REMOVE_INDEXED_WORKSPACE_CONFIRM);
+    if (!confirmed) {
+      return;
+    }
+    void removeIndexedWorkspace();
+  };
+
+  const removeIndexedWorkspace = async (): Promise<void> => {
+    setRemovingIndexedWorkspace(true);
+    setRunListError(null);
+    try {
+      await clearWorkspaceSession();
+      setStore(null);
+      setSourceLabel("");
+      setCommitSha(undefined);
+      setRepoUrl("");
+      setStatusMessage("Removed the indexed repository. Saved reports are still in the list.");
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Could not remove the indexed repository.";
+      setRunListError(message);
+    } finally {
+      setRemovingIndexedWorkspace(false);
+    }
+  };
+
   const handleSelectRun = (runId: string): void => {
     const selected = savedRuns.find((run) => run.id === runId);
     if (!selected) {
@@ -567,25 +670,44 @@ export function AnalysisWorkspacePage(): JSX.Element {
           icon={Database}
           testId="saved-runs"
         >
+          {statusMessage && selectedRunId === null && (
+            <p className="mb-3 text-sm text-[var(--md-on-surface-variant)]" data-testid="workspace-list-status">
+              {statusMessage}
+            </p>
+          )}
           {store && (
-            <button
-              type="button"
-              className="mb-4 flex w-full items-center justify-between gap-3 rounded-2xl border border-[var(--md-outline)]/30 bg-[var(--md-surface-container-high)]/40 px-4 py-4 text-left"
-              data-testid="indexed-workspace"
-              onClick={handleContinueIndexedWorkspace}
-            >
-              <span>
-                <span className="block text-sm font-semibold text-[var(--md-on-surface)]">Indexed repository</span>
-                <span className="mt-1 block text-sm text-[var(--md-on-surface-variant)]">{sourceLabel}</span>
-              </span>
-              <span className="text-sm font-medium text-[var(--md-primary)]">Continue</span>
-            </button>
+            <div className="mb-4 flex items-center gap-3 rounded-2xl border border-[var(--md-outline)]/30 bg-[var(--md-surface-container-high)]/40 px-4 py-4">
+              <button
+                type="button"
+                className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left"
+                data-testid="indexed-workspace"
+                onClick={handleContinueIndexedWorkspace}
+              >
+                <span>
+                  <span className="block text-sm font-semibold text-[var(--md-on-surface)]">Indexed repository</span>
+                  <span className="mt-1 block text-sm text-[var(--md-on-surface-variant)]">{sourceLabel}</span>
+                </span>
+                <span className="text-sm font-medium text-[var(--md-primary)]">Continue</span>
+              </button>
+              <button
+                type="button"
+                className="inline-flex shrink-0 items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-[var(--color-neon-pink)] hover:bg-[var(--color-neon-pink)]/10 disabled:opacity-50"
+                data-testid="remove-indexed-workspace"
+                disabled={removingIndexedWorkspace}
+                onClick={handleRemoveIndexedWorkspace}
+              >
+                <Trash2 className="h-4 w-4" aria-hidden />
+                {removingIndexedWorkspace ? DELETING_WORKSPACE_LABEL : REMOVE_INDEXED_WORKSPACE_LABEL}
+              </button>
+            </div>
           )}
           <RunHistory
             runs={savedRuns}
             selectedRunId={selectedRunId}
             error={runListError}
             onSelectRun={handleToggleRun}
+            onDeleteRun={handleDeleteRun}
+            deletingRunId={deletingRunId}
             openRunContent={openWorkspaceReport}
           />
         </PageSection>

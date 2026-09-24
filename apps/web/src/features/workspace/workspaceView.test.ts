@@ -6,7 +6,7 @@ import {
   recommendationCountLabel,
   summarizeWorkspaceRun,
 } from "./workspaceRunSummary";
-import { nextOpenRunId } from "./workspaceView";
+import { deleteWorkspaceConfirmMessage, nextOpenRunId, shouldClearOpenWorkspace } from "./workspaceView";
 
 describe("nextOpenRunId", () => {
   it("opens a closed workspace", () => {
@@ -19,6 +19,23 @@ describe("nextOpenRunId", () => {
 
   it("switches to a different workspace", () => {
     expect(nextOpenRunId("run-a", "run-b")).toBe("run-b");
+  });
+});
+
+describe("shouldClearOpenWorkspace", () => {
+  it("clears the workspace that was deleted", () => {
+    expect(shouldClearOpenWorkspace("run-a", "run-a")).toBe(true);
+  });
+
+  it("keeps a different workspace open", () => {
+    expect(shouldClearOpenWorkspace("run-a", "run-b")).toBe(false);
+    expect(shouldClearOpenWorkspace(null, "run-b")).toBe(false);
+  });
+});
+
+describe("deleteWorkspaceConfirmMessage", () => {
+  it("names the workspace being deleted", () => {
+    expect(deleteWorkspaceConfirmMessage("payments-api")).toContain("payments-api");
   });
 });
 

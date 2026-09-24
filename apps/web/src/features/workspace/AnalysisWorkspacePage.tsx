@@ -38,7 +38,9 @@ import { StrideThreatModelPanel } from "../findings/StrideThreatModelPanel";
 import { FrameworkRiskPanel } from "../findings/FrameworkRiskPanel";
 import { PullRequestReview } from "../findings/PullRequestReview";
 import { FollowUpCopilot } from "../copilot/FollowUpCopilot";
-import { saveReportLocally } from "../persistence/indexedDbStore";
+import { listSavedReports, saveReportLocally, type PersistedReportRecord } from "../persistence/indexedDbStore";
+import type { AgentWorkItem } from "../analysis/AgentActivityPanel/agentWorkState";
+import { RunHistory } from "./RunHistory";
 import { canRunProviderInBrowser } from "../provider/aiBrowserTransport";
 import { useSession } from "../session/SessionProvider";
 import { loadWorkspaceSession, saveWorkspaceSession } from "./workspaceSessionStore";
@@ -80,28 +82,44 @@ export function AnalysisWorkspacePage(): JSX.Element {
   const [showTrustBoundaries, setShowTrustBoundaries] = useState(true);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [sessionRestored, setSessionRestored] = useState(false);
+  const [savedRuns, setSavedRuns] = useState<PersistedReportRecord[]>([]);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [openedAgentWork, setOpenedAgentWork] = useState<AgentWorkItem[]>([]);
+  const [runListError, setRunListError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    void loadWorkspaceSession().then((snapshot) => {
-      if (cancelled || !snapshot) {
-        setSessionRestored(true);
+    const restoreWorkspace = async (): Promise<void> => {
+      const snapshot = await loadWorkspaceSession();
+      if (cancelled) {
         return;
       }
-      setStore(snapshot.store);
-      setSourceLabel(snapshot.sourceLabel);
-      setCommitSha(snapshot.commitSha);
-      if (snapshot.repoUrl) {
-        setRepoUrl(snapshot.repoUrl);
+      if (snapshot) {
+        setStore(snapshot.store);
+        setSourceLabel(snapshot.sourceLabel);
+        setCommitSha(snapshot.commitSha);
+        if (snapshot.repoUrl) {
+          setRepoUrl(snapshot.repoUrl);
+        }
+        if (snapshot.lastReport) {
+          setReport(snapshot.lastReport);
+          setSelectedRunId(snapshot.lastReport.id);
+        }
+        await rememberRestoredRun(snapshot.lastReport);
+        if (cancelled) {
+          return;
+        }
+        setStatusMessage(
+          `Restored indexed repository (“${snapshot.sourceLabel}”) saved ${new Date(snapshot.savedAt).toLocaleString()}.`,
+        );
+      } else {
+        await refreshSavedRuns();
       }
-      if (snapshot.lastReport) {
-        setReport(snapshot.lastReport);
+      if (!cancelled) {
+        setSessionRestored(true);
       }
-      setStatusMessage(
-        `Restored indexed repository (“${snapshot.sourceLabel}”) saved ${new Date(snapshot.savedAt).toLocaleString()}.`,
-      );
-      setSessionRestored(true);
-    });
+    };
+    void restoreWorkspace();
     return () => {
       cancelled = true;
     };
@@ -213,12 +231,13 @@ export function AnalysisWorkspacePage(): JSX.Element {
     if (!store) {
       return;
     }
+    setOpenedAgentWork([]);
     setStatusMessage("Running full-repository threat model, including open pull requests when GitHub is available…");
     const repoRef = repoUrl ? parseGitHubRepositoryUrl(repoUrl) : null;
     const priorMemory = report?.memory && report.repository.url === repoUrl ? report.memory : undefined;
     setReport(null);
     try {
-      const result = await runner.runBrowserAnalysis({
+      const completed = await runner.runBrowserAnalysis({
         store,
         sourceLabel,
         repositoryUrl: repoUrl || undefined,
@@ -235,10 +254,14 @@ export function AnalysisWorkspacePage(): JSX.Element {
         maxRequests,
         maxTokens,
       });
-      setReport(result);
-      await persistIndexedRepository(store, sourceLabel, commitSha, repoUrl, result);
+      setReport(completed.report);
+      setOpenedAgentWork(completed.agentWork);
+      setSelectedRunId(completed.report.id);
+      await saveReportLocally(completed.report, completed.agentWork);
+      await refreshSavedRuns();
+      await persistIndexedRepository(store, sourceLabel, commitSha, repoUrl, completed.report);
       setStatusMessage(
-        `Threat model complete — ${result.findings.length} findings (${result.budget.requestsUsed} AI requests, ${result.budget.tokensUsed} tokens).`,
+        `Threat model complete — ${completed.report.findings.length} findings (${completed.report.budget.requestsUsed} AI requests, ${completed.report.budget.tokensUsed} tokens).`,
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Analysis failed.";
@@ -250,7 +273,9 @@ export function AnalysisWorkspacePage(): JSX.Element {
     if (!report) {
       return;
     }
-    await saveReportLocally(report);
+    await saveReportLocally(report, openedAgentWork);
+    await refreshSavedRuns();
+    setSelectedRunId(report.id);
     setStatusMessage("Report saved locally in IndexedDB (secrets excluded).");
   };
 
@@ -325,6 +350,48 @@ export function AnalysisWorkspacePage(): JSX.Element {
         ),
       };
     });
+  };
+
+  const handleSelectRun = (runId: string): void => {
+    const selected = savedRuns.find((run) => run.id === runId);
+    if (!selected) {
+      setRunListError("That run is no longer saved in this browser.");
+      return;
+    }
+    setRunListError(null);
+    setSelectedRunId(selected.id);
+    setReport(selected.report);
+    setOpenedAgentWork(selected.agentWork);
+    setSelectedFindingId(undefined);
+    setStatusMessage(`Opened run “${selected.report.title}”.`);
+  };
+
+  const rememberRestoredRun = async (lastReport: AnalysisReport | undefined): Promise<void> => {
+    try {
+      if (lastReport) {
+        const existing = await listSavedReports();
+        const alreadySaved = existing.some((record) => record.id === lastReport.id);
+        if (!alreadySaved) {
+          await saveReportLocally(lastReport, []);
+        }
+      }
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Could not load saved runs.";
+      setRunListError(message);
+      return;
+    }
+    await refreshSavedRuns();
+  };
+
+  const refreshSavedRuns = async (): Promise<void> => {
+    try {
+      const records = await listSavedReports();
+      setSavedRuns(records);
+      setRunListError(null);
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Could not load saved runs.";
+      setRunListError(message);
+    }
   };
 
   const handleExportHtml = (): void => {
@@ -515,6 +582,20 @@ export function AnalysisWorkspacePage(): JSX.Element {
         </PageSection>
       </div>
 
+      <PageSection
+        title="Saved runs"
+        description="Every finished threat model stays in this browser. Open a run to see its findings, architecture, and agent steps."
+        icon={Database}
+        testId="saved-runs"
+      >
+        <RunHistory
+          runs={savedRuns}
+          selectedRunId={selectedRunId}
+          error={runListError}
+          onSelectRun={handleSelectRun}
+        />
+      </PageSection>
+
       {store && (
         <PageSection
           title="Repository tree"
@@ -550,7 +631,9 @@ export function AnalysisWorkspacePage(): JSX.Element {
               </div>
             </div>
           )}
-          {runner.agentWork.length > 0 && <AgentActivityPanel agents={runner.agentWork} />}
+          {(runner.isRunning ? runner.agentWork : openedAgentWork).length > 0 && (
+            <AgentActivityPanel agents={runner.isRunning ? runner.agentWork : openedAgentWork} />
+          )}
           {(statusMessage || ingestion.error) && (
             <p className="mt-3 text-sm text-[var(--md-on-surface-variant)]" data-testid="workspace-status">
               {ingestion.error ?? statusMessage}

@@ -1,4 +1,5 @@
 import { AnalysisReportSchema, sanitizeReportForExport, type AnalysisReport } from "@sentinel/schema";
+import type { AgentWorkItem } from "../analysis/AgentActivityPanel/agentWorkState";
 
 const DB_NAME = "architecture-sentinel";
 const DB_VERSION = 2;
@@ -9,6 +10,7 @@ export interface PersistedReportRecord {
   id: string;
   savedAt: string;
   report: AnalysisReport;
+  agentWork: AgentWorkItem[];
 }
 
 function openDatabase(): Promise<IDBDatabase> {
@@ -28,7 +30,7 @@ function openDatabase(): Promise<IDBDatabase> {
   });
 }
 
-export async function saveReportLocally(report: AnalysisReport): Promise<void> {
+export async function saveReportLocally(report: AnalysisReport, agentWork: AgentWorkItem[] = []): Promise<void> {
   const sanitized = sanitizeReportForExport(report);
   const db = await openDatabase();
   await new Promise<void>((resolve, reject) => {
@@ -38,6 +40,7 @@ export async function saveReportLocally(report: AnalysisReport): Promise<void> {
       id: sanitized.id,
       savedAt: new Date().toISOString(),
       report: sanitized,
+      agentWork,
     };
     store.put(record);
     tx.oncomplete = () => resolve();
@@ -56,7 +59,26 @@ export async function listSavedReports(): Promise<PersistedReportRecord[]> {
     request.onerror = () => reject(request.error ?? new Error("IndexedDB read failed"));
   });
   db.close();
-  return records;
+  return sortSavedRunsNewestFirst(records.map(normalizeSavedRun));
+}
+
+export function sortSavedRunsNewestFirst(records: PersistedReportRecord[]): PersistedReportRecord[] {
+  return [...records].sort(compareRunsNewestFirst);
+}
+
+function compareRunsNewestFirst(left: PersistedReportRecord, right: PersistedReportRecord): number {
+  const byTime = right.savedAt.localeCompare(left.savedAt);
+  if (byTime !== 0) {
+    return byTime;
+  }
+  return right.id.localeCompare(left.id);
+}
+
+function normalizeSavedRun(record: PersistedReportRecord): PersistedReportRecord {
+  return {
+    ...record,
+    agentWork: record.agentWork ?? [],
+  };
 }
 
 export async function deleteSavedReport(reportId: string): Promise<void> {

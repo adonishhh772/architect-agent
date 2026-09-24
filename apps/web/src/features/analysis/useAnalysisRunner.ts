@@ -13,6 +13,11 @@ export interface AnalysisRunnerProgress {
   total: number;
 }
 
+export interface AnalysisRunResult {
+  report: AnalysisReport;
+  agentWork: AgentWorkItem[];
+}
+
 export function useAnalysisRunner(): {
   isRunning: boolean;
   progress: AnalysisRunnerProgress | null;
@@ -34,7 +39,7 @@ export function useAnalysisRunner(): {
     exclusions: string[];
     maxRequests: number;
     maxTokens: number;
-  }) => Promise<AnalysisReport>;
+  }) => Promise<AnalysisRunResult>;
   cancel: () => void;
 } {
   const [isRunning, setIsRunning] = useState(false);
@@ -42,6 +47,7 @@ export function useAnalysisRunner(): {
   const [agentWork, setAgentWork] = useState<AgentWorkItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const agentWorkRef = useRef<AgentWorkItem[]>([]);
 
   const cancel = useCallback(() => {
     abortRef.current?.abort();
@@ -52,6 +58,7 @@ export function useAnalysisRunner(): {
     async (input) => {
       setIsRunning(true);
       setError(null);
+      agentWorkRef.current = [];
       setAgentWork([]);
       abortRef.current = new AbortController();
       try {
@@ -83,9 +90,12 @@ export function useAnalysisRunner(): {
               return;
             }
             const activity = event.agentActivity;
-            setAgentWork((current) =>
-              applyAgentActivity(current.length === 0 ? createPendingAgentWork() : current, activity),
+            const nextWork = applyAgentActivity(
+              agentWorkRef.current.length === 0 ? createPendingAgentWork() : agentWorkRef.current,
+              activity,
             );
+            agentWorkRef.current = nextWork;
+            setAgentWork(nextWork);
           },
           budget: {
             maxRequests: input.maxRequests,
@@ -94,7 +104,7 @@ export function useAnalysisRunner(): {
           githubToken: input.githubToken,
           priorMemory: input.priorMemory,
         });
-        return report;
+        return { report, agentWork: agentWorkRef.current };
       } catch (caught) {
         const message = caught instanceof Error ? caught.message : "Analysis failed";
         setError(message);

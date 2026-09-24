@@ -7,18 +7,16 @@ function isLocalDevHost(): boolean {
   return window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
 }
 
+const BROWSER_PROVIDER_IDS = new Set<ProviderSettings["providerId"]>([
+  PROVIDER_ID.OPENAI,
+  PROVIDER_ID.ANTHROPIC,
+  PROVIDER_ID.GEMINI,
+  PROVIDER_ID.DEEPSEEK,
+  PROVIDER_ID.OPENAI_COMPATIBLE,
+]);
+
 export function canRunProviderInBrowser(providerId: ProviderSettings["providerId"]): boolean {
-  if (providerId === PROVIDER_ID.GEMINI || providerId === PROVIDER_ID.DEEPSEEK) {
-    return true;
-  }
-  if (!isLocalDevHost()) {
-    return false;
-  }
-  return (
-    providerId === PROVIDER_ID.DEEPSEEK ||
-    providerId === PROVIDER_ID.OPENAI ||
-    providerId === PROVIDER_ID.OPENAI_COMPATIBLE
-  );
+  return BROWSER_PROVIDER_IDS.has(providerId);
 }
 
 export function getBrowserProviderSettingsForAi(settings: ProviderSettings): ProviderSettings {

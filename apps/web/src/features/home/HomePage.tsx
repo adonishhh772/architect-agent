@@ -154,7 +154,7 @@ export function HomePage(): JSX.Element {
             <li>Fetch public GitHub trees or upload a ZIP — processed in-tab.</li>
             <li>Static graph extraction plus optional AI investigation with budgets.</li>
             <li>Progress stops when the tab closes; reports can persist in IndexedDB.</li>
-            <li>Direct model calls only when the provider allows browser CORS.</li>
+            <li>Direct model calls from this browser for OpenAI, Anthropic, Gemini, DeepSeek, and a confirmed custom endpoint.</li>
           </ul>
         </HomeFeatureCard>
         <HomeFeatureCard title="Deep runner" icon={Workflow} accentClass="bg-[var(--color-neon-purple)]">

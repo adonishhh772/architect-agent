@@ -7,22 +7,22 @@ export function getProviderCapabilities(
   switch (providerId) {
     case PROVIDER_ID.OPENAI:
       return {
-        browserCallable: false,
+        browserCallable: true,
         structuredOutput: true,
         modelDiscovery: true,
         toolCalling: true,
         notes: [
-          "OpenAI API does not allow browser CORS for API keys; use Deep Runner or a server proxy in production.",
+          "OpenAI is called directly from the browser, including GitHub Pages. The API key is visible to this browser session.",
         ],
       };
     case PROVIDER_ID.ANTHROPIC:
       return {
-        browserCallable: false,
+        browserCallable: true,
         structuredOutput: false,
         modelDiscovery: true,
         toolCalling: true,
         notes: [
-          "Anthropic Messages API is not intended for direct browser use due to CORS and key exposure.",
+          "Anthropic is called directly from the browser with the browser-access header. The API key is visible to this browser session.",
         ],
       };
     case PROVIDER_ID.GEMINI:
@@ -47,12 +47,12 @@ export function getProviderCapabilities(
       };
     case PROVIDER_ID.OPENAI_COMPATIBLE:
       return {
-        browserCallable: false,
+        browserCallable: true,
         structuredOutput: true,
         modelDiscovery: false,
         toolCalling: true,
         notes: [
-          "Custom endpoints require explicit user confirmation before sending credentials.",
+          "Custom endpoints are called from the browser after you confirm the endpoint. The endpoint must allow this site's origin.",
         ],
       };
     default:

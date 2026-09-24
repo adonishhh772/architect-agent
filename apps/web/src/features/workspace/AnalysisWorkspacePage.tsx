@@ -149,7 +149,7 @@ export function AnalysisWorkspacePage(): JSX.Element {
           : !session.aiTransmissionConfirmed
             ? "Confirm AI transmission below."
             : !aiBrowserReady
-              ? `${providerLabel} cannot call the API from the browser on this host. Use Gemini or DeepSeek, the local dev proxy for OpenAI, or Deep Runner.`
+              ? `${providerLabel} cannot call the API from the browser on this host.`
               : null;
 
   const persistIndexedRepository = async (
@@ -543,7 +543,7 @@ export function AnalysisWorkspacePage(): JSX.Element {
               <p>
                 Each specialist reads a targeted evidence pack with repository tools, then a verifier checks citations against the indexed snapshot.
                 Requests go to <strong>{providerLabel}</strong> (
-                {aiBrowserReady ? "browser OK, with the dev proxy when needed" : "not available in this browser context"}).
+                {aiBrowserReady ? "browser OK" : "not available in this browser context"}).
                 The same graph runs in this browser and in the Deep Runner CLI.
               </p>
               {!session.connectionTested && (

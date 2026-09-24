@@ -174,7 +174,7 @@ function resolveBlockedReason(input: {
     return "A follow-up is already running.";
   }
   if (!input.browserReady) {
-    return "This provider cannot be called from the browser. Use the dev proxy or the CLI.";
+    return "This provider cannot be called from the browser.";
   }
   if (!input.apiKey) {
     return "Save a model API key in the vault before asking a follow-up.";

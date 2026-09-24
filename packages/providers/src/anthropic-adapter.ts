@@ -11,6 +11,8 @@ import { ProviderError } from "./types.js";
 
 const ANTHROPIC_BASE = "https://api.anthropic.com/v1";
 const ANTHROPIC_VERSION = "2023-06-01";
+const ANTHROPIC_BROWSER_ACCESS_HEADER = "anthropic-dangerous-direct-browser-access";
+const ANTHROPIC_BROWSER_ACCESS_VALUE = "true";
 
 export function createAnthropicAdapter(
   settings: ProviderSettings,
@@ -32,6 +34,7 @@ export function createAnthropicAdapter(
             headers: {
               "x-api-key": apiKey,
               "anthropic-version": ANTHROPIC_VERSION,
+              [ANTHROPIC_BROWSER_ACCESS_HEADER]: ANTHROPIC_BROWSER_ACCESS_VALUE,
             },
           },
           settings.requestTimeoutMs,
@@ -89,6 +92,7 @@ export function createAnthropicAdapter(
           headers: {
             "x-api-key": apiKey,
             "anthropic-version": ANTHROPIC_VERSION,
+            [ANTHROPIC_BROWSER_ACCESS_HEADER]: ANTHROPIC_BROWSER_ACCESS_VALUE,
             "Content-Type": "application/json",
           },
           body: JSON.stringify(body),

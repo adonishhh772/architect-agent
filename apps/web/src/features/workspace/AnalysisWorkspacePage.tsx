@@ -4,13 +4,14 @@ import { Link } from "react-router-dom";
 import {
   Bot,
   Database,
-  FileArchive,
   FlaskConical,
   GitBranch,
   Github,
+  ArrowLeft,
   LayoutDashboard,
   LockKeyhole,
   Play,
+  Plus,
   ScanSearch,
   SlidersHorizontal,
   Square,
@@ -24,9 +25,8 @@ import { AgentActivityPanel } from "../analysis/AgentActivityPanel";
 import { useAnalysisRunner } from "../analysis/useAnalysisRunner";
 import { exportReportHtml, exportReportJson, exportReportMarkdown, exportReportSarif } from "../export/reportExportActions";
 import { rememberDisposition } from "@sentinel/analysis";
-import { ReportAccordion, REPORT_SECTION } from "../../components/layout/ReportAccordion";
-import { buildReportAccordionItems } from "./buildReportAccordionItems";
-import { RepositoryFileTree } from "../ingest/RepositoryFileTree";
+import { REPORT_SECTION } from "../../components/layout/ReportAccordion";
+import { OpenWorkspaceReport } from "./OpenWorkspaceReport";
 import { useRepositoryIngestion } from "../ingest/useRepositoryIngestion";
 import { parseGitHubRepositoryUrl } from "@sentinel/ingestion";
 import { listSavedReports, saveReportLocally, type PersistedReportRecord } from "../persistence/indexedDbStore";
@@ -36,7 +36,15 @@ import { WorkspaceJourney } from "./WorkspaceJourney";
 import { buildWorkspaceJourney } from "./WorkspaceJourney/workspaceJourneyModel";
 import { canRunProviderInBrowser } from "../provider/aiBrowserTransport";
 import { useSession } from "../session/SessionProvider";
-import { loadWorkspaceSession, saveWorkspaceSession } from "./workspaceSessionStore";
+import { clearWorkspaceSession, loadWorkspaceSession, saveWorkspaceSession } from "./workspaceSessionStore";
+import { indexedStoreMatchesReport } from "./workspaceRunSummary";
+import {
+  BACK_TO_WORKSPACES_LABEL,
+  INSPECT_ANOTHER_WORKSPACE_LABEL,
+  nextOpenRunId,
+  WORKSPACE_VIEW,
+  type WorkspaceViewMode,
+} from "./workspaceView";
 import type { RepositoryStore } from "@sentinel/ingestion";
 import { DEMO_FIXTURE_LABEL, loadDemoFixtureStore } from "../demo/loadDemoFixture";
 
@@ -81,6 +89,7 @@ export function AnalysisWorkspacePage(): JSX.Element {
   const [sessionRestored, setSessionRestored] = useState(false);
   const [savedRuns, setSavedRuns] = useState<PersistedReportRecord[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [workspaceView, setWorkspaceView] = useState<WorkspaceViewMode>(WORKSPACE_VIEW.LIST);
   const [openedAgentWork, setOpenedAgentWork] = useState<AgentWorkItem[]>([]);
   const [runListError, setRunListError] = useState<string | null>(null);
 
@@ -97,10 +106,6 @@ export function AnalysisWorkspacePage(): JSX.Element {
         setCommitSha(snapshot.commitSha);
         if (snapshot.repoUrl) {
           setRepoUrl(snapshot.repoUrl);
-        }
-        if (snapshot.lastReport) {
-          setReport(snapshot.lastReport);
-          setSelectedRunId(snapshot.lastReport.id);
         }
         await rememberRestoredRun(snapshot.lastReport);
         if (cancelled) {
@@ -270,6 +275,7 @@ export function AnalysisWorkspacePage(): JSX.Element {
       await saveReportLocally(completed.report, completed.agentWork);
       await refreshSavedRuns();
       await persistIndexedRepository(store, sourceLabel, commitSha, repoUrl, completed.report);
+      setWorkspaceView(WORKSPACE_VIEW.LIST);
       setStatusMessage(
         `Threat model complete — ${completed.report.findings.length} findings (${completed.report.budget.requestsUsed} AI requests, ${completed.report.budget.tokensUsed} tokens).`,
       );
@@ -370,6 +376,45 @@ export function AnalysisWorkspacePage(): JSX.Element {
     setOpenReportSection(sectionId);
   };
 
+  const handleToggleRun = (runId: string): void => {
+    const nextRunId = nextOpenRunId(selectedRunId, runId);
+    if (!nextRunId) {
+      setSelectedRunId(null);
+      return;
+    }
+    handleSelectRun(nextRunId);
+  };
+
+  const handleInspectAnotherWorkspace = (): void => {
+    if (runner.isRunning || ingestion.isLoading) {
+      setStatusMessage("Finish or cancel the current inspection before starting another workspace.");
+      return;
+    }
+    setWorkspaceView(WORKSPACE_VIEW.INSPECT);
+    setSelectedRunId(null);
+    setReport(null);
+    setStore(null);
+    setSourceLabel("");
+    setCommitSha(undefined);
+    setRepoUrl("");
+    setSelectedFindingId(undefined);
+    setSelectedMapLabel(undefined);
+    setSelectedTreePath(undefined);
+    setOpenedAgentWork([]);
+    setStatusMessage(null);
+    void clearWorkspaceSession().catch(() => {
+      setStatusMessage("Could not clear the previous indexed repository.");
+    });
+  };
+
+  const handleBackToWorkspaces = (): void => {
+    setWorkspaceView(WORKSPACE_VIEW.LIST);
+  };
+
+  const handleContinueIndexedWorkspace = (): void => {
+    setWorkspaceView(WORKSPACE_VIEW.INSPECT);
+  };
+
   const handleSelectRun = (runId: string): void => {
     const selected = savedRuns.find((run) => run.id === runId);
     if (!selected) {
@@ -418,22 +463,94 @@ export function AnalysisWorkspacePage(): JSX.Element {
     }
   };
 
+  const showingWorkspaceList = workspaceView === WORKSPACE_VIEW.LIST;
+  const openedStoreMatches = report
+    ? indexedStoreMatchesReport({
+        sourceLabel,
+        repoUrl,
+        commitSha,
+        reportRepositoryName: report.repository.name,
+        reportRepositoryUrl: report.repository.url,
+        reportCommitSha: report.repository.commitSha,
+      })
+    : false;
+  const openWorkspaceReport =
+    report && selectedRunId === report.id ? (
+      <OpenWorkspaceReport
+        report={report}
+        store={openedStoreMatches ? store : null}
+        githubToken={githubToken}
+        selectedFindingId={selectedFindingId}
+        selectedFinding={selectedFinding}
+        providerSettings={session.providerSettings}
+        apiKey={session.getModelApiKey()}
+        transmissionConfirmed={session.aiTransmissionConfirmed}
+        browserReady={aiBrowserReady}
+        agentWork={openedAgentWork}
+        selectedTreePath={selectedTreePath}
+        selectedMapLabel={selectedMapLabel}
+        openReportSection={openReportSection}
+        statusMessage={statusMessage}
+        onSelectFinding={handleSelectFinding}
+        onDispositionChange={handleDispositionChange}
+        onExportJson={handleExportJson}
+        onExportMarkdown={handleExportMarkdown}
+        onExportHtml={handleExportHtml}
+        onExportSarif={handleExportSarif}
+        onPersistReport={handlePersistReport}
+        onSelectMapLabel={setSelectedMapLabel}
+        onSelectCitation={handleSelectCitation}
+        onOpenReportSection={handleOpenReportSection}
+        onSelectTreePath={setSelectedTreePath}
+      />
+    ) : null;
+
   return (
-    <div className="page-shell mx-auto max-w-7xl space-y-8 pb-10">
+    <div className="page-shell mx-auto max-w-7xl space-y-8 pb-10" data-testid="workspace-page">
       <PageHero
         icon={LayoutDashboard}
         eyebrow="Analysis workspace"
-        title="Review a repository"
-        description="Prepare the model, index the source, then read the architecture map. The rest of the report stays closed until you open a section."
+        title={showingWorkspaceList ? "Workspaces" : "Inspect a repository"}
+        description={
+          showingWorkspaceList
+            ? "Each row is a saved threat model. Open one to read the architecture, findings, and the rest of that report."
+            : "Index a repository, run the threat model, then return to the list to read the report."
+        }
       >
         <div className="flex flex-wrap gap-2">
-          <StatusChip label="Indexed" active={Boolean(store)} />
-          <StatusChip label="Session saved" active={sessionRestored && Boolean(store)} />
-          <StatusChip label="Analyzing" active={runner.isRunning} />
-          <StatusChip label="Report ready" active={Boolean(report)} />
-          <StatusChip label="Vault unlocked" active={session.vaultStatus === "unlocked"} />
+          {showingWorkspaceList ? (
+            <MaterialButton
+              icon={<Plus className="h-4 w-4" aria-hidden />}
+              onClick={handleInspectAnotherWorkspace}
+              disabled={runner.isRunning || ingestion.isLoading}
+              data-testid="inspect-another-workspace"
+            >
+              {INSPECT_ANOTHER_WORKSPACE_LABEL}
+            </MaterialButton>
+          ) : (
+            <MaterialButton
+              variant="outlined"
+              icon={<ArrowLeft className="h-4 w-4" aria-hidden />}
+              onClick={handleBackToWorkspaces}
+              data-testid="back-to-workspaces"
+            >
+              {BACK_TO_WORKSPACES_LABEL}
+            </MaterialButton>
+          )}
         </div>
-        {sourceLabel && (
+        {showingWorkspaceList ? (
+          <p className="mt-3 text-sm text-[var(--md-on-surface-variant)]">
+            {savedRuns.length === 1 ? "1 saved report" : `${savedRuns.length} saved reports`}
+          </p>
+        ) : (
+          <div className="mt-4 flex flex-wrap gap-2">
+            <StatusChip label="Indexed" active={Boolean(store)} />
+            <StatusChip label="Session saved" active={sessionRestored && Boolean(store)} />
+            <StatusChip label="Analyzing" active={runner.isRunning} />
+            <StatusChip label="Vault unlocked" active={session.vaultStatus === "unlocked"} />
+          </div>
+        )}
+        {!showingWorkspaceList && sourceLabel && (
           <p className="mt-3 text-sm text-[var(--md-on-surface-variant)]">
             <span className="font-medium text-[var(--md-on-surface)]">Source:</span> {sourceLabel}
             {commitSha && (
@@ -443,8 +560,40 @@ export function AnalysisWorkspacePage(): JSX.Element {
         )}
       </PageHero>
 
-      <WorkspaceJourney steps={journey.steps} nextAction={journey.nextAction} />
+      {showingWorkspaceList && (
+        <PageSection
+          title="Reports"
+          description="Open a workspace to see the map, findings, recommendations, and every other section of that report."
+          icon={Database}
+          testId="saved-runs"
+        >
+          {store && (
+            <button
+              type="button"
+              className="mb-4 flex w-full items-center justify-between gap-3 rounded-2xl border border-[var(--md-outline)]/30 bg-[var(--md-surface-container-high)]/40 px-4 py-4 text-left"
+              data-testid="indexed-workspace"
+              onClick={handleContinueIndexedWorkspace}
+            >
+              <span>
+                <span className="block text-sm font-semibold text-[var(--md-on-surface)]">Indexed repository</span>
+                <span className="mt-1 block text-sm text-[var(--md-on-surface-variant)]">{sourceLabel}</span>
+              </span>
+              <span className="text-sm font-medium text-[var(--md-primary)]">Continue</span>
+            </button>
+          )}
+          <RunHistory
+            runs={savedRuns}
+            selectedRunId={selectedRunId}
+            error={runListError}
+            onSelectRun={handleToggleRun}
+            openRunContent={openWorkspaceReport}
+          />
+        </PageSection>
+      )}
 
+      {!showingWorkspaceList && <WorkspaceJourney steps={journey.steps} nextAction={journey.nextAction} />}
+
+      {!showingWorkspaceList && (
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <PageSection
           title="Repository input"
@@ -611,8 +760,9 @@ export function AnalysisWorkspacePage(): JSX.Element {
           </div>
         </PageSection>
       </div>
+      )}
 
-      {(progress || statusMessage || ingestion.error || runner.isRunning || runner.agentWork.length > 0) && (
+      {!showingWorkspaceList && (progress || statusMessage || ingestion.error || runner.isRunning || runner.agentWork.length > 0) && (
         <PageSection
           title="Progress"
           description="The nine audit agents and the steps each one is taking."
@@ -644,61 +794,6 @@ export function AnalysisWorkspacePage(): JSX.Element {
         </PageSection>
       )}
 
-      {report && (
-        <ReportAccordion
-          items={buildReportAccordionItems({
-            report,
-            store,
-            githubToken,
-            selectedFindingId,
-            selectedFinding,
-            providerSettings: session.providerSettings,
-            apiKey: session.getModelApiKey(),
-            transmissionConfirmed: session.aiTransmissionConfirmed,
-            browserReady: aiBrowserReady,
-            onSelectFinding: handleSelectFinding,
-            onDispositionChange: handleDispositionChange,
-            onExportJson: handleExportJson,
-            onExportMarkdown: handleExportMarkdown,
-            onExportHtml: handleExportHtml,
-            onExportSarif: handleExportSarif,
-            onPersistReport: handlePersistReport,
-            selectedMapLabel,
-            onSelectMapLabel: setSelectedMapLabel,
-            onSelectCitation: handleSelectCitation,
-          })}
-          openSectionId={openReportSection}
-          onOpenSectionChange={handleOpenReportSection}
-        />
-      )}
-
-      <PageSection
-        title="Saved runs"
-        description="Open a finished run to bring its map, findings, and agent steps back into this page."
-        icon={Database}
-        testId="saved-runs"
-      >
-        <RunHistory
-          runs={savedRuns}
-          selectedRunId={selectedRunId}
-          error={runListError}
-          onSelectRun={handleSelectRun}
-        />
-      </PageSection>
-
-      {store && (
-        <PageSection
-          title="Repository tree"
-          description="Indexed paths from the last ingest. Excluded files are struck through."
-          icon={FileArchive}
-        >
-          <RepositoryFileTree
-            store={store}
-            selectedPath={selectedTreePath}
-            onSelectPath={setSelectedTreePath}
-          />
-        </PageSection>
-      )}
     </div>
   );
 }

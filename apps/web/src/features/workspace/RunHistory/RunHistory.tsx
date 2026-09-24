@@ -1,15 +1,30 @@
+import { ChevronRight } from "lucide-react";
+import type { ReactNode } from "react";
 import type { PersistedReportRecord } from "../../persistence/indexedDbStore";
+import {
+  findingCountLabel,
+  HIGH_FINDING_RISK,
+  recommendationCountLabel,
+  summarizeWorkspaceRun,
+} from "../workspaceRunSummary";
 
-const EMPTY_RUNS_MESSAGE = "No saved runs yet. Finish a threat model and it will appear here.";
+const EMPTY_RUNS_MESSAGE = "No workspaces yet. Inspect a repository to create the first report.";
 
 interface RunHistoryProps {
   runs: PersistedReportRecord[];
   selectedRunId: string | null;
   error: string | null;
   onSelectRun: (runId: string) => void;
+  openRunContent: ReactNode | null;
 }
 
-export function RunHistory({ runs, selectedRunId, error, onSelectRun }: RunHistoryProps): JSX.Element {
+export function RunHistory({
+  runs,
+  selectedRunId,
+  error,
+  onSelectRun,
+  openRunContent,
+}: RunHistoryProps): JSX.Element {
   return (
     <div className="space-y-3" data-testid="run-history">
       {error && (
@@ -22,13 +37,14 @@ export function RunHistory({ runs, selectedRunId, error, onSelectRun }: RunHisto
           {EMPTY_RUNS_MESSAGE}
         </p>
       ) : (
-        <ul className="space-y-2">
+        <ul className="space-y-3">
           {runs.map((run) => (
             <RunHistoryItem
               key={run.id}
               run={run}
               selected={run.id === selectedRunId}
               onSelectRun={onSelectRun}
+              openRunContent={run.id === selectedRunId ? openRunContent : null}
             />
           ))}
         </ul>
@@ -41,39 +57,65 @@ interface RunHistoryItemProps {
   run: PersistedReportRecord;
   selected: boolean;
   onSelectRun: (runId: string) => void;
+  openRunContent: ReactNode | null;
 }
 
-function RunHistoryItem({ run, selected, onSelectRun }: RunHistoryItemProps): JSX.Element {
+function RunHistoryItem({ run, selected, onSelectRun, openRunContent }: RunHistoryItemProps): JSX.Element {
+  const summary = summarizeWorkspaceRun(run);
+  const analyzedAt = formatRunTime(summary.analyzedAt);
+
   const handleSelect = (): void => {
     onSelectRun(run.id);
   };
-  const repositoryName = run.report.repository.name ?? run.report.title;
-  const analyzedAt = formatRunTime(run.report.repository.analyzedAt || run.savedAt);
 
   return (
-    <li>
+    <li
+      className={`overflow-hidden rounded-2xl border ${
+        selected
+          ? "border-[var(--md-primary)]/50 bg-[var(--md-surface-container)] shadow-lg"
+          : "border-[var(--md-outline)]/30 bg-[var(--md-surface-container-high)]/40"
+      }`}
+    >
       <button
         type="button"
-        className={`w-full rounded-xl border px-4 py-3 text-left transition ${
-          selected
-            ? "border-[var(--md-primary)] bg-[var(--md-primary-container)]/40"
-            : "border-[var(--md-outline)]/30 bg-[var(--md-surface-container-high)]/40"
-        }`}
+        className="flex w-full items-start gap-3 px-4 py-4 text-left"
         data-testid={`run-history-${run.id}`}
-        aria-pressed={selected}
+        aria-expanded={selected}
         onClick={handleSelect}
       >
-        <span className="flex flex-wrap items-baseline justify-between gap-2">
-          <span className="text-sm font-semibold text-[var(--md-on-surface)]">{run.report.title}</span>
-          <span className="text-xs text-[var(--md-on-surface-variant)]">{analyzedAt}</span>
-        </span>
-        <span className="mt-1 block text-sm text-[var(--md-on-surface-variant)]">
-          {repositoryName} · {run.report.findings.length} findings · {run.report.budget.requestsUsed} requests ·{" "}
-          {run.report.budget.tokensUsed} tokens
+        <ChevronRight
+          className={`mt-1 h-4 w-4 shrink-0 text-[var(--md-primary)] transition ${selected ? "rotate-90" : ""}`}
+          aria-hidden
+        />
+        <span className={`mt-1 h-10 w-1 shrink-0 rounded-full ${riskStripeClass(summary.highestRisk)}`} aria-hidden />
+        <span className="min-w-0 flex-1">
+          <span className="flex flex-wrap items-baseline justify-between gap-2">
+            <span className="font-display text-base font-semibold text-[var(--md-on-surface)]">{summary.title}</span>
+            <span className="text-xs text-[var(--md-on-surface-variant)]">{analyzedAt}</span>
+          </span>
+          <span className="mt-1 block text-sm text-[var(--md-on-surface-variant)]">
+            {summary.repositoryName} · {findingCountLabel(summary.findingCount)} ·{" "}
+            {recommendationCountLabel(summary.recommendationCount)}
+          </span>
         </span>
       </button>
+      {selected && openRunContent && (
+        <div className="border-t border-[var(--md-outline)]/25 px-4 py-5" data-testid={`run-report-${run.id}`}>
+          {openRunContent}
+        </div>
+      )}
     </li>
   );
+}
+
+function riskStripeClass(highestRisk: number | null): string {
+  if (highestRisk === null) {
+    return "bg-[var(--md-outline)]";
+  }
+  if (highestRisk >= HIGH_FINDING_RISK) {
+    return "bg-[var(--color-neon-pink)]";
+  }
+  return "bg-[var(--color-neon-green)]";
 }
 
 function formatRunTime(value: string): string {

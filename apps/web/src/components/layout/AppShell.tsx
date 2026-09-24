@@ -241,7 +241,7 @@ function PrimaryNavLink({ item, active, collapsed, onNavigate }: PrimaryNavLinkP
         "flex items-center rounded-xl px-3 py-2 text-sm transition",
         collapsed ? "justify-center" : "gap-2",
         active
-          ? "bg-[var(--md-primary-container)] text-[var(--md-on-primary-container)] ring-1 ring-[var(--md-primary)]/30"
+          ? "nav-active"
           : "text-[var(--md-on-surface)] hover:bg-[var(--md-surface-container-high)]",
       )}
       onClick={onNavigate}

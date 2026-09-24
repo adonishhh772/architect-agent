@@ -11,29 +11,31 @@
 }
 
 :root {
-  --md-primary: #1a73e8;
+  --md-primary: #2563eb;
   --md-on-primary: #ffffff;
-  --md-primary-container: #d3e3fd;
-  --md-on-primary-container: #041e49;
-  --md-surface: #f8fafd;
-  --md-surface-container: #eef3fb;
-  --md-surface-container-high: #e7edf8;
-  --md-on-surface: #1f1f1f;
-  --md-on-surface-variant: #444746;
-  --md-outline: #747775;
+  --md-primary-container: #dbeafe;
+  --md-on-primary-container: #172554;
+  --md-surface: #f4f7fb;
+  --md-surface-container: rgba(255, 255, 255, 0.72);
+  --md-surface-container-high: rgba(255, 255, 255, 0.9);
+  --md-on-surface: #0f172a;
+  --md-on-surface-variant: #475569;
+  --md-outline: #94a3b8;
+  --sentinel-glow: rgba(59, 130, 246, 0.18);
 }
 
 .dark {
-  --md-primary: #a8c7fa;
-  --md-on-primary: #062e6f;
-  --md-primary-container: #0842a0;
-  --md-on-primary-container: #d3e3fd;
-  --md-surface: #0a0a1a;
-  --md-surface-container: #1b1f2a;
-  --md-surface-container-high: #252a37;
-  --md-on-surface: #e3e2e6;
-  --md-on-surface-variant: #c4c7c5;
-  --md-outline: #8e918f;
+  --md-primary: #7dd3fc;
+  --md-on-primary: #082f49;
+  --md-primary-container: rgba(14, 165, 233, 0.18);
+  --md-on-primary-container: #e0f2fe;
+  --md-surface: #070714;
+  --md-surface-container: rgba(255, 255, 255, 0.05);
+  --md-surface-container-high: rgba(255, 255, 255, 0.08);
+  --md-on-surface: #e8eefc;
+  --md-on-surface-variant: #a8b3c7;
+  --md-outline: rgba(255, 255, 255, 0.16);
+  --sentinel-glow: rgba(45, 212, 191, 0.16);
 }
 
 html,
@@ -43,12 +45,18 @@ body,
 }
 
 body {
-  font-family: "Roboto", system-ui, sans-serif;
-  @apply bg-[var(--md-surface)] text-[var(--md-on-surface)] antialiased;
+  font-family: "Outfit", system-ui, sans-serif;
+  background-color: var(--md-surface);
+  background-image:
+    radial-gradient(ellipse 80% 50% at 10% -10%, var(--sentinel-glow), transparent 55%),
+    radial-gradient(ellipse 50% 40% at 100% 0%, rgba(139, 92, 246, 0.12), transparent 50%);
+  background-attachment: fixed;
+  @apply text-[var(--md-on-surface)] antialiased;
 }
 
 .font-display {
-  font-family: "Space Grotesk", "Roboto", system-ui, sans-serif;
+  font-family: "Space Grotesk", "Outfit", system-ui, sans-serif;
+  letter-spacing: -0.03em;
 }
 
 .home-hero {
@@ -144,8 +152,20 @@ body {
   }
 }
 
-.md-elevated-card {
-  @apply rounded-2xl border border-[var(--md-outline)]/30 bg-[var(--md-surface-container)] p-6 shadow-md;
+.md-elevated-card,
+.glass-card {
+  border: 1px solid color-mix(in srgb, var(--md-outline) 70%, transparent);
+  background: var(--md-surface-container);
+  box-shadow:
+    0 1px 0 color-mix(in srgb, white 30%, transparent) inset,
+    0 18px 50px rgba(2, 6, 23, 0.18);
+  @apply rounded-2xl p-6 backdrop-blur-xl;
+}
+
+.nav-active {
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+  box-shadow: 0 0 24px var(--sentinel-glow);
 }
 
 .architecture-diagram svg {
@@ -153,10 +173,6 @@ body {
   max-width: none;
   height: auto;
   min-width: 720px;
-}
-
-.glass-card {
-  @apply rounded-xl border border-slate-200/60 bg-white/80 p-6 shadow-lg backdrop-blur-xl dark:border-white/10 dark:bg-white/5;
 }
 
 .glass-button {

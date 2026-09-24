@@ -1,6 +1,7 @@
 import type { AiProviderAdapter } from "@sentinel/providers";
 import type { AgentTraceEntry, AnalysisReport, AuditMemory } from "@sentinel/schema";
 import type { PullRequestSnapshot, RepositoryStore } from "@sentinel/ingestion";
+import type { AgentActivityUpdate } from "./agent-activity.js";
 import { runMultiAgentAudit } from "./audit-graph.js";
 import type { InvestigationToolContext } from "./investigation-tools.js";
 
@@ -12,6 +13,7 @@ export interface DeepInvestigationAgentOptions {
   signal?: AbortSignal;
   budget?: { maxRequests?: number; maxTokens?: number };
   onPhase?: (message: string, completed: number, total: number) => void;
+  onAgentStep?: (update: AgentActivityUpdate) => void;
   onUsage?: (usage: { totalTokens: number }) => void;
   getUsage?: () => { requestsUsed: number; tokensUsed: number };
   pullRequests?: PullRequestSnapshot[];
@@ -46,6 +48,7 @@ export async function runDeepInvestigationAgent(
     budget: options.budget,
     commitSha: options.store.index.commitSha,
     onPhase: options.onPhase,
+    onAgentStep: options.onAgentStep,
     onUsage: options.onUsage,
     getUsage: options.getUsage,
     pullRequests: options.pullRequests,

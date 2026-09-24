@@ -93,6 +93,7 @@ describe("runMultiAgentAudit", () => {
     const store = buildRepositoryStore(SAMPLE_FILES);
     const graph = extractArchitectureFromTypeScript({ files: store.contents });
     const prompts: string[] = [];
+    const steps: string[] = [];
     let requestsUsed = 0;
     const provider = createScriptedProvider(prompts);
 
@@ -106,6 +107,9 @@ describe("runMultiAgentAudit", () => {
         expect(usage.totalTokens).toBeGreaterThan(0);
       },
       getUsage: () => ({ requestsUsed, tokensUsed: requestsUsed * 20 }),
+      onAgentStep: (update) => {
+        steps.push(`${update.agentId}:${update.kind}:${update.step}`);
+      },
     });
 
     expect(result.agentTrace.map((entry) => entry.agentId)).toEqual([
@@ -129,6 +133,9 @@ describe("runMultiAgentAudit", () => {
     expect(strideFinding?.owaspCategories).toContain(OWASP_CATEGORY.BROKEN_ACCESS_CONTROL);
     expect(result.attackPaths.some((path) => path.stepFindingIds.includes("finding-stride-stride-session"))).toBe(true);
     expect(prompts.some((prompt) => prompt.includes("\"matches\""))).toBe(true);
+    expect(steps.some((step) => step.includes("thinking:Cartographer mapped the indexed modules."))).toBe(true);
+    expect(steps.some((step) => step.includes("searchCode on NEEDLE_ARCHITECTURE"))).toBe(true);
+    expect(steps.some((step) => step.startsWith(`${AUDIT_AGENT.VERIFIER}:`))).toBe(true);
     expect(requestsUsed).toBeGreaterThanOrEqual(7);
   });
 

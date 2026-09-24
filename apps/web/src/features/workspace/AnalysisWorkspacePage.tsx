@@ -23,6 +23,7 @@ import { MaterialButton } from "../../components/material/MaterialButton";
 import { MaterialTextField } from "../../components/material/MaterialTextField";
 import { PageHero } from "../../components/layout/PageHero";
 import { PageSection } from "../../components/layout/PageSection";
+import { AgentActivityPanel } from "../analysis/AgentActivityPanel";
 import { useAnalysisRunner } from "../analysis/useAnalysisRunner";
 import { exportReportHtml, exportReportJson, exportReportMarkdown, exportReportSarif } from "../export/reportExportActions";
 import { ArchitectureOverview } from "../architecture/ArchitectureOverview";
@@ -528,8 +529,12 @@ export function AnalysisWorkspacePage(): JSX.Element {
         </PageSection>
       )}
 
-      {(progress || statusMessage || ingestion.error || runner.isRunning) && (
-        <PageSection title="Progress" icon={GitBranch}>
+      {(progress || statusMessage || ingestion.error || runner.isRunning || runner.agentWork.length > 0) && (
+        <PageSection
+          title="Progress"
+          description="The nine audit agents and the steps each one is taking."
+          icon={GitBranch}
+        >
           {progress && (
             <div data-testid="analysis-progress">
               <p className="text-sm font-medium text-[var(--md-on-surface)]">
@@ -545,6 +550,7 @@ export function AnalysisWorkspacePage(): JSX.Element {
               </div>
             </div>
           )}
+          {runner.agentWork.length > 0 && <AgentActivityPanel agents={runner.agentWork} />}
           {(statusMessage || ingestion.error) && (
             <p className="mt-3 text-sm text-[var(--md-on-surface-variant)]" data-testid="workspace-status">
               {ingestion.error ?? statusMessage}

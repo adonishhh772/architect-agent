@@ -1,4 +1,5 @@
 import { runAnalysisOrchestrator } from "@sentinel/analysis";
+import { applyAgentActivity, createPendingAgentWork, type AgentWorkItem } from "./AgentActivityPanel";
 import { createProviderAdapter } from "@sentinel/providers";
 import { ANALYSIS_MODE, type AnalysisReport, type AuditMemory, type ProviderSettings } from "@sentinel/schema";
 import type { RepositoryStore } from "@sentinel/ingestion";
@@ -15,6 +16,7 @@ export interface AnalysisRunnerProgress {
 export function useAnalysisRunner(): {
   isRunning: boolean;
   progress: AnalysisRunnerProgress | null;
+  agentWork: AgentWorkItem[];
   error: string | null;
   runBrowserAnalysis: (input: {
     store: RepositoryStore;
@@ -37,6 +39,7 @@ export function useAnalysisRunner(): {
 } {
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState<AnalysisRunnerProgress | null>(null);
+  const [agentWork, setAgentWork] = useState<AgentWorkItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -49,6 +52,7 @@ export function useAnalysisRunner(): {
     async (input) => {
       setIsRunning(true);
       setError(null);
+      setAgentWork([]);
       abortRef.current = new AbortController();
       try {
         const providerSettingsForBrowser = getBrowserProviderSettingsForAi(input.providerSettings);
@@ -73,7 +77,16 @@ export function useAnalysisRunner(): {
           apiKey: input.apiKey,
           enableAi: input.enableAi,
           signal: abortRef.current.signal,
-          onProgress: (event) => setProgress(event),
+          onProgress: (event) => {
+            setProgress(event);
+            if (!event.agentActivity) {
+              return;
+            }
+            const activity = event.agentActivity;
+            setAgentWork((current) =>
+              applyAgentActivity(current.length === 0 ? createPendingAgentWork() : current, activity),
+            );
+          },
           budget: {
             maxRequests: input.maxRequests,
             maxTokens: input.maxTokens,
@@ -94,5 +107,5 @@ export function useAnalysisRunner(): {
     [],
   );
 
-  return { isRunning, progress, error, runBrowserAnalysis, cancel };
+  return { isRunning, progress, agentWork, error, runBrowserAnalysis, cancel };
 }

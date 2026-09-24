@@ -29,6 +29,17 @@ import {
   type ToolObservation,
 } from "./evidence-packs.js";
 import { ToolName, executeInvestigationTool, type InvestigationToolContext } from "./investigation-tools.js";
+import {
+  AGENT_ACTIVITY_STATUS,
+  AGENT_ACTIVITY_TEXT,
+  AGENT_STEP_KIND,
+  describeEvidenceRead,
+  describePassOutcome,
+  describeReviewRound,
+  describeThinking,
+  describeToolActivity,
+  type AgentActivityUpdate,
+} from "./agent-activity.js";
 import { sanitizeRepositorySnippetForPrompt } from "./prompt-safety.js";
 
 const TOOL_NAME_LIST = [
@@ -146,6 +157,7 @@ export interface AuditSpecialistOptions {
   commitSha?: string;
   onUsage?: (usage: { totalTokens: number }) => void;
   getUsage?: () => { requestsUsed: number; tokensUsed: number };
+  onAgentStep?: (update: AgentActivityUpdate) => void;
 }
 
 export interface AuditSpecialistResult {
@@ -168,14 +180,14 @@ async function executeSpecialist(options: AuditSpecialistOptions): Promise<Audit
     throw new DOMException("Aborted", "AbortError");
   }
   if (!budgetAllowsRequest(options)) {
-    return emptyResult(options.agentId, AGENT_RUN_STATUS.SKIPPED, AUDIT_MESSAGE.BUDGET_EXHAUSTED, 0);
+    return finishSpecialist(options, AGENT_RUN_STATUS.SKIPPED, AUDIT_MESSAGE.BUDGET_EXHAUSTED, 0);
   }
 
   const paths = [...options.context.contents.keys()];
   const alreadyRead = options.alreadyRead ?? new Set<string>();
   const selection = selectEvidenceForAgent(options.agentId, paths, alreadyRead, options.context, options.pullRequests);
   if (selection.skip) {
-    return emptyResult(options.agentId, selection.status, selection.detail, 0);
+    return finishSpecialist(options, selection.status, selection.detail, 0);
   }
   const selected = selection.paths;
   const observations = selection.observations;
@@ -188,8 +200,10 @@ async function executeSpecialist(options: AuditSpecialistOptions): Promise<Audit
   }
 
   if (selected.length === 0 && observations.length === 0 && options.agentId !== AUDIT_AGENT.CARTOGRAPHER) {
-    return emptyResult(options.agentId, AGENT_RUN_STATUS.SKIPPED, AUDIT_MESSAGE.NO_EVIDENCE, 0);
+    return finishSpecialist(options, AGENT_RUN_STATUS.SKIPPED, AUDIT_MESSAGE.NO_EVIDENCE, 0);
   }
+
+  reportAgentStep(options, AGENT_ACTIVITY_STATUS.RUNNING, AGENT_STEP_KIND.ACTION, describeEvidenceRead(options.agentId, selected));
 
   const collectedFindings: Finding[] = [];
   const collectedPaths: AttackPath[] = [];
@@ -205,6 +219,13 @@ async function executeSpecialist(options: AuditSpecialistOptions): Promise<Audit
     if (!budgetAllowsRequest(options)) {
       break;
     }
+
+    reportAgentStep(
+      options,
+      AGENT_ACTIVITY_STATUS.RUNNING,
+      AGENT_STEP_KIND.ACTION,
+      describeReviewRound(roundIndex + 1),
+    );
 
     const completion = await options.provider.complete(options.apiKey, {
       messages: [
@@ -229,8 +250,8 @@ async function executeSpecialist(options: AuditSpecialistOptions): Promise<Audit
 
     const parsed = parseJsonWithRepair(completion.text, SpecialistResponseSchema);
     if (!parsed.success) {
-      return emptyResult(
-        options.agentId,
+      return finishSpecialist(
+        options,
         AGENT_RUN_STATUS.FAILED,
         AUDIT_MESSAGE.INVALID_MODEL_JSON,
         toolCallCount,
@@ -240,6 +261,14 @@ async function executeSpecialist(options: AuditSpecialistOptions): Promise<Audit
 
     architectureBrief = parsed.data.architectureBrief ?? architectureBrief;
     overview = parsed.data.threatModelOverview ?? overview;
+    if (parsed.data.threatModelOverview) {
+      reportAgentStep(
+        options,
+        AGENT_ACTIVITY_STATUS.RUNNING,
+        AGENT_STEP_KIND.THINKING,
+        describeThinking(parsed.data.threatModelOverview),
+      );
+    }
     collectedFindings.push(...mapDraftFindings(parsed.data, options));
     collectedPaths.push(...mapDraftAttackPaths(parsed.data, options.agentId));
 
@@ -251,10 +280,26 @@ async function executeSpecialist(options: AuditSpecialistOptions): Promise<Audit
     if (!continueWithTools) {
       break;
     }
+    for (const call of requestedTools.slice(0, AUDIT_LIMITS.TOOL_CALLS_PER_ROUND)) {
+      reportAgentStep(
+        options,
+        AGENT_ACTIVITY_STATUS.RUNNING,
+        AGENT_STEP_KIND.ACTION,
+        describeToolActivity(call.tool, call.args),
+      );
+    }
+    reportAgentStep(options, AGENT_ACTIVITY_STATUS.RUNNING, AGENT_STEP_KIND.ACTION, AGENT_ACTIVITY_TEXT.FOLLOW_UP);
     followUpObservations = executeRequestedTools(requestedTools, options.context);
     toolCallCount += followUpObservations.length;
   }
 
+  const detail = options.agentId === AUDIT_AGENT.CODE_READER ? AUDIT_MESSAGE.READER_COMPLETE : AUDIT_MESSAGE.COMPLETED;
+  reportAgentStep(
+    options,
+    AGENT_ACTIVITY_STATUS.COMPLETED,
+    AGENT_STEP_KIND.ACTION,
+    describePassOutcome(collectedFindings.length, detail),
+  );
   return {
     architectureBrief,
     overview,
@@ -266,10 +311,30 @@ async function executeSpecialist(options: AuditSpecialistOptions): Promise<Audit
     trace: {
       agentId: options.agentId,
       status: AGENT_RUN_STATUS.COMPLETED,
-      detail: options.agentId === AUDIT_AGENT.CODE_READER ? AUDIT_MESSAGE.READER_COMPLETE : AUDIT_MESSAGE.COMPLETED,
+      detail,
       toolCallCount,
     },
   };
+}
+
+function reportAgentStep(
+  options: AuditSpecialistOptions,
+  status: AgentActivityUpdate["status"],
+  kind: AgentActivityUpdate["kind"],
+  step: string,
+): void {
+  options.onAgentStep?.({ agentId: options.agentId, status, kind, step });
+}
+
+function finishSpecialist(
+  options: AuditSpecialistOptions,
+  status: AgentTraceEntry["status"],
+  detail: string,
+  toolCallCount: number,
+  pathsRead: string[] = [],
+): AuditSpecialistResult {
+  reportAgentStep(options, status, AGENT_STEP_KIND.ACTION, detail);
+  return emptyResult(options.agentId, status, detail, toolCallCount, pathsRead);
 }
 
 function budgetAllowsRequest(options: AuditSpecialistOptions): boolean {

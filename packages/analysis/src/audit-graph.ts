@@ -9,6 +9,11 @@ import {
   type Finding,
 } from "@sentinel/schema";
 import type { AuditMemory } from "@sentinel/schema";
+import {
+  AGENT_ACTIVITY_STATUS,
+  AGENT_ACTIVITY_TEXT,
+  AGENT_STEP_KIND,
+} from "./agent-activity.js";
 import { AUDIT_MESSAGE, type AuditSpecialistOptions, type AuditSpecialistResult } from "./audit-specialist.js";
 import { runAuditSpecialist } from "./audit-specialist.js";
 import { buildAuditMemory } from "./audit-memory.js";
@@ -163,6 +168,12 @@ function createSpecialistNode(
   const phaseIndex = AUDIT_AGENT_ORDER.indexOf(agentId);
   return async function specialistNode(state: AuditGraphState): Promise<Partial<AuditGraphState>> {
     options.onPhase?.(`Agent: ${agentId}`, phaseIndex + 1, AUDIT_AGENT_ORDER.length);
+    options.onAgentStep?.({
+      agentId,
+      status: AGENT_ACTIVITY_STATUS.RUNNING,
+      kind: AGENT_STEP_KIND.ACTION,
+      step: AGENT_ACTIVITY_TEXT.START,
+    });
     try {
       const result = await runAuditSpecialist({
         ...options,
@@ -178,6 +189,12 @@ function createSpecialistNode(
         throw error;
       }
       const message = error instanceof Error ? error.message : "Agent failed";
+      options.onAgentStep?.({
+        agentId,
+        status: AGENT_ACTIVITY_STATUS.FAILED,
+        kind: AGENT_STEP_KIND.ACTION,
+        step: message,
+      });
       return {
         agentTrace: [
           {
@@ -200,8 +217,20 @@ function createCodeReaderNode(
   const indexedPaths = [...options.context.contents.keys()];
   return async function codeReaderNode(state: AuditGraphState): Promise<Partial<AuditGraphState>> {
     options.onPhase?.("Agent: code_reader", 2, AUDIT_AGENT_ORDER.length);
+    options.onAgentStep?.({
+      agentId: AUDIT_AGENT.CODE_READER,
+      status: AGENT_ACTIVITY_STATUS.RUNNING,
+      kind: AGENT_STEP_KIND.ACTION,
+      step: AGENT_ACTIVITY_TEXT.START,
+    });
     const unread = listUnreadPaths(indexedPaths, new Set(state.pathsRead));
     if (unread.length === 0) {
+      options.onAgentStep?.({
+        agentId: AUDIT_AGENT.CODE_READER,
+        status: AGENT_ACTIVITY_STATUS.COMPLETED,
+        kind: AGENT_STEP_KIND.ACTION,
+        step: AUDIT_MESSAGE.READER_DONE,
+      });
       return {
         continueReading: false,
         agentTrace: [
@@ -215,6 +244,12 @@ function createCodeReaderNode(
       };
     }
     if (!readerBudgetAllows(options) || state.readerRounds >= AUDIT_LIMITS.READER_ROUND_CAP) {
+      options.onAgentStep?.({
+        agentId: AUDIT_AGENT.CODE_READER,
+        status: AGENT_ACTIVITY_STATUS.SKIPPED,
+        kind: AGENT_STEP_KIND.ACTION,
+        step: AUDIT_MESSAGE.READER_RESERVE,
+      });
       return {
         continueReading: false,
         agentTrace: [
@@ -254,6 +289,12 @@ function createCodeReaderNode(
         throw error;
       }
       const message = error instanceof Error ? error.message : "Code reader failed";
+      options.onAgentStep?.({
+        agentId: AUDIT_AGENT.CODE_READER,
+        status: AGENT_ACTIVITY_STATUS.FAILED,
+        kind: AGENT_STEP_KIND.ACTION,
+        step: message,
+      });
       return {
         continueReading: false,
         agentTrace: [
@@ -291,7 +332,19 @@ function createVerifierNode(options: MultiAgentAuditOptions) {
   const phaseIndex = AUDIT_AGENT_ORDER.indexOf(AUDIT_AGENT.VERIFIER);
   return function verifierNode(state: AuditGraphState): Partial<AuditGraphState> {
     options.onPhase?.("Agent: verifier", phaseIndex + 1, AUDIT_AGENT_ORDER.length);
+    options.onAgentStep?.({
+      agentId: AUDIT_AGENT.VERIFIER,
+      status: AGENT_ACTIVITY_STATUS.RUNNING,
+      kind: AGENT_STEP_KIND.ACTION,
+      step: AGENT_ACTIVITY_TEXT.VERIFY_START,
+    });
     const findings = verifyAuditFindings(state.findings, options.context.contents, options.context.graph);
+    options.onAgentStep?.({
+      agentId: AUDIT_AGENT.VERIFIER,
+      status: AGENT_ACTIVITY_STATUS.COMPLETED,
+      kind: AGENT_STEP_KIND.ACTION,
+      step: VERIFIER_DETAIL,
+    });
     return {
       findings,
       attackPaths: resolveAttackPaths(state.attackPaths, findings),

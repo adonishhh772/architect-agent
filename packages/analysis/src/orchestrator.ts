@@ -14,6 +14,7 @@ import {
   type RepositoryMetadata,
 } from "@sentinel/schema";
 import { fetchOpenPullRequests, type PullRequestSnapshot } from "@sentinel/ingestion";
+import type { AgentActivityUpdate } from "./agent-activity.js";
 import { buildCoverageReport } from "./coverage-builder.js";
 import { runDeepInvestigationAgent } from "./deep-investigation-agent.js";
 import { applyStoredDispositions } from "./disposition.js";
@@ -30,6 +31,7 @@ export interface AnalysisProgressEvent {
   message: string;
   completed: number;
   total: number;
+  agentActivity?: AgentActivityUpdate;
 }
 
 export interface OrchestratorOptions {
@@ -58,8 +60,14 @@ export async function runAnalysisOrchestrator(
   let partialCompletion = false;
   let partialReason: string | undefined;
 
-  const emit = (phase: string, message: string, completed: number, total: number): void => {
-    options.onProgress?.({ phase, message, completed, total });
+  const emit = (
+    phase: string,
+    message: string,
+    completed: number,
+    total: number,
+    agentActivity?: AgentActivityUpdate,
+  ): void => {
+    options.onProgress?.({ phase, message, completed, total, agentActivity });
   };
 
   emit("inventory", "Indexing repository", 1, 10);
@@ -121,6 +129,11 @@ export async function runAnalysisOrchestrator(
           budget: options.budget,
           onPhase: (message, completed, total) => {
             emit("investigate", message, completed, total);
+          },
+          onAgentStep: (update) => {
+            const phaseIndex = AUDIT_AGENT_ORDER.findIndex((agentId) => agentId === update.agentId);
+            const completed = phaseIndex >= 0 ? phaseIndex + 1 : 5;
+            emit("investigate", `Agent: ${update.agentId}`, completed, AUDIT_AGENT_ORDER.length, update);
           },
           onUsage: (usage) => {
             tokensUsed += usage.totalTokens;

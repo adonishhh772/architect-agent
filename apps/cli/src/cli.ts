@@ -151,6 +151,10 @@ async function main(): Promise<void> {
     apiKey: apiKey ?? undefined,
     enableAi: args.enableAi,
     onProgress: (event) => {
+      if (event.agentActivity) {
+        console.log(`[analysis] ${event.agentActivity.agentId}: ${event.agentActivity.step}`);
+        return;
+      }
       console.log(`[analysis] ${event.phase}: ${event.message}`);
     },
     budget: {

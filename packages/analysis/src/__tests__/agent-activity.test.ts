@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { AUDIT_AGENT } from "@sentinel/schema";
 import {
   describeEvidenceRead,
+  describeFileRead,
+  describeRemainingFileReads,
   describePassOutcome,
   describeThinking,
   describeToolActivity,
@@ -19,6 +21,19 @@ describe("describeEvidenceRead", () => {
 
   it("describes a pull request when there is no file pack", () => {
     expect(describeEvidenceRead(AUDIT_AGENT.PULL_REQUEST, [])).toBe("Reading the open pull request diff.");
+  });
+});
+
+describe("describeFileRead", () => {
+  it("names one file the way a live pass would", () => {
+    expect(describeFileRead("backend/app/middleware/http_logging.py")).toBe(
+      "Reading backend/app/middleware/http_logging.py.",
+    );
+  });
+
+  it("counts the files that are not listed one by one", () => {
+    expect(describeRemainingFileReads(1)).toBe("Reading 1 more file.");
+    expect(describeRemainingFileReads(3)).toBe("Reading 3 more files.");
   });
 });
 

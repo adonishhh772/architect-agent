@@ -1,5 +1,5 @@
 import type { AiProviderAdapter } from "@sentinel/providers";
-import { parseJsonWithRepair } from "@sentinel/providers";
+import { parseSpecialistResponse } from "./specialist-response.js";
 import {
   AGENT_RUN_STATUS,
   ATLAS_TECHNIQUE_LIST,
@@ -38,6 +38,9 @@ import {
   AGENT_ACTIVITY_TEXT,
   AGENT_STEP_KIND,
   describeEvidenceRead,
+  describeFileRead,
+  describeRemainingFileReads,
+  LIVE_FILE_READ_LIMIT,
   describePassOutcome,
   describeReviewRound,
   describeThinking,
@@ -193,8 +196,12 @@ async function executeSpecialist(options: AuditSpecialistOptions): Promise<Audit
   }
 
   const paths = [...options.context.contents.keys()];
-  if (isSpecialistPackAgent(options.agentId) || options.agentId === AUDIT_AGENT.CARTOGRAPHER) {
-    return reviewSharedEvidence(options, options.sharedEvidence ?? []);
+  const sharedEvidence = options.sharedEvidence ?? [];
+  if (
+    sharedEvidence.length > 0 &&
+    (isSpecialistPackAgent(options.agentId) || options.agentId === AUDIT_AGENT.CARTOGRAPHER)
+  ) {
+    return reviewSharedEvidence(options, sharedEvidence);
   }
   const alreadyRead = options.alreadyRead ?? new Set<string>();
   const selection = selectEvidenceForAgent(
@@ -222,7 +229,7 @@ async function executeSpecialist(options: AuditSpecialistOptions): Promise<Audit
     return finishSpecialist(options, AGENT_RUN_STATUS.SKIPPED, AUDIT_MESSAGE.NO_EVIDENCE, 0);
   }
 
-  reportAgentStep(options, AGENT_ACTIVITY_STATUS.RUNNING, AGENT_STEP_KIND.ACTION, describeEvidenceRead(options.agentId, selected));
+  await publishFileReads(options, selected);
 
   const collectedFindings: Finding[] = [];
   const collectedPaths: AttackPath[] = [];
@@ -246,6 +253,14 @@ async function executeSpecialist(options: AuditSpecialistOptions): Promise<Audit
       AGENT_STEP_KIND.ACTION,
       describeReviewRound(roundIndex + 1),
     );
+    await waitForLivePaint();
+    reportAgentStep(
+      options,
+      AGENT_ACTIVITY_STATUS.RUNNING,
+      AGENT_STEP_KIND.ACTION,
+      AGENT_ACTIVITY_TEXT.WRITING_REVIEW,
+    );
+    await waitForLivePaint();
 
     const completion = await options.provider.complete(options.apiKey, {
       messages: [
@@ -268,12 +283,12 @@ async function executeSpecialist(options: AuditSpecialistOptions): Promise<Audit
     });
     options.onUsage?.(completion.usage);
 
-    const parsed = parseJsonWithRepair(completion.text, SpecialistResponseSchema);
+    const parsed = parseSpecialistResponse(completion.text, SpecialistResponseSchema);
     if (!parsed.success) {
       return finishSpecialist(
         options,
         AGENT_RUN_STATUS.FAILED,
-        AUDIT_MESSAGE.INVALID_MODEL_JSON,
+        invalidAuditMessage(parsed.error),
         toolCallCount,
         selected,
       );
@@ -364,6 +379,14 @@ async function reviewSharedEvidence(options: AuditSpecialistOptions, sharedEvide
       AGENT_STEP_KIND.ACTION,
       describeEvidenceRead(options.agentId, batch.map((_note, index) => `shared-window-${batchIndex + 1}-${index + 1}`)),
     );
+    await waitForLivePaint();
+    reportAgentStep(
+      options,
+      AGENT_ACTIVITY_STATUS.RUNNING,
+      AGENT_STEP_KIND.ACTION,
+      AGENT_ACTIVITY_TEXT.WRITING_REVIEW,
+    );
+    await waitForLivePaint();
     const completion = await options.provider.complete(options.apiKey, {
       messages: [
         { role: "system", content: buildSpecialistSystemPrompt(options.agentId) },
@@ -384,9 +407,9 @@ async function reviewSharedEvidence(options: AuditSpecialistOptions, sharedEvide
       maxOutputTokens: 8192,
     });
     options.onUsage?.(completion.usage);
-    const parsed = parseJsonWithRepair(completion.text, SpecialistResponseSchema);
+    const parsed = parseSpecialistResponse(completion.text, SpecialistResponseSchema);
     if (!parsed.success) {
-      return finishSpecialist(options, AGENT_RUN_STATUS.FAILED, AUDIT_MESSAGE.INVALID_MODEL_JSON, toolCallCount, []);
+      return finishSpecialist(options, AGENT_RUN_STATUS.FAILED, invalidAuditMessage(parsed.error), toolCallCount, []);
     }
     architectureBrief = parsed.data.architectureBrief ?? architectureBrief;
     if (options.agentId === AUDIT_AGENT.CARTOGRAPHER && parsed.data.architectureMermaid) {
@@ -425,9 +448,9 @@ async function reviewSharedEvidence(options: AuditSpecialistOptions, sharedEvide
         maxOutputTokens: 8192,
       });
       options.onUsage?.(followUpCompletion.usage);
-      const followUpParsed = parseJsonWithRepair(followUpCompletion.text, SpecialistResponseSchema);
+      const followUpParsed = parseSpecialistResponse(followUpCompletion.text, SpecialistResponseSchema);
       if (!followUpParsed.success) {
-        return finishSpecialist(options, AGENT_RUN_STATUS.FAILED, AUDIT_MESSAGE.INVALID_MODEL_JSON, toolCallCount, []);
+        return finishSpecialist(options, AGENT_RUN_STATUS.FAILED, invalidAuditMessage(followUpParsed.error), toolCallCount, []);
       }
       resolved = followUpParsed.data;
     }
@@ -479,6 +502,44 @@ function chunkNotes(notes: readonly string[], batchSize: number): string[][] {
   return batches;
 }
 
+
+async function publishFileReads(options: AuditSpecialistOptions, paths: string[]): Promise<void> {
+  if (paths.length === 0) {
+    reportAgentStep(
+      options,
+      AGENT_ACTIVITY_STATUS.RUNNING,
+      AGENT_STEP_KIND.ACTION,
+      describeEvidenceRead(options.agentId, paths),
+    );
+    await waitForLivePaint();
+    return;
+  }
+  const visiblePaths = paths.slice(0, LIVE_FILE_READ_LIMIT);
+  for (const path of visiblePaths) {
+    reportAgentStep(options, AGENT_ACTIVITY_STATUS.RUNNING, AGENT_STEP_KIND.ACTION, describeFileRead(path));
+    await waitForLivePaint();
+  }
+  const hiddenCount = paths.length - visiblePaths.length;
+  if (hiddenCount > 0) {
+    reportAgentStep(
+      options,
+      AGENT_ACTIVITY_STATUS.RUNNING,
+      AGENT_STEP_KIND.ACTION,
+      describeRemainingFileReads(hiddenCount),
+    );
+    await waitForLivePaint();
+  }
+}
+
+function waitForLivePaint(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 16);
+  });
+}
+
+function invalidAuditMessage(error: string): string {
+  return `${AUDIT_MESSAGE.INVALID_MODEL_JSON} ${error.slice(0, 180)}`;
+}
 
 function reportAgentStep(
   options: AuditSpecialistOptions,

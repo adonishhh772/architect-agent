@@ -1,6 +1,7 @@
 import { AGENT_ACTIVITY_STATUS, AGENT_STEP_KIND, type AgentActivityUpdate } from "@sentinel/analysis";
 import { AUDIT_AGENT } from "@sentinel/schema";
 import { describe, expect, it } from "vitest";
+import { buildTranscript } from "./AgentActivityPanel";
 import { applyAgentActivity, createPendingAgentWork } from "./agentWorkState";
 
 describe("applyAgentActivity", () => {
@@ -45,6 +46,28 @@ describe("applyAgentActivity", () => {
     const cartographer = withThinking.find((item) => item.agentId === AUDIT_AGENT.CARTOGRAPHER);
 
     expect(cartographer?.steps).toHaveLength(2);
+  });
+});
+
+describe("buildTranscript", () => {
+  it("marks only the latest step of the running agent as live", () => {
+    const started = applyAgentActivity(createPendingAgentWork(), {
+      agentId: AUDIT_AGENT.CODE_READER,
+      status: AGENT_ACTIVITY_STATUS.RUNNING,
+      kind: AGENT_STEP_KIND.ACTION,
+      step: "Reading backend/app/middleware/http_logging.py.",
+    });
+    const writing = applyAgentActivity(started, {
+      agentId: AUDIT_AGENT.CODE_READER,
+      status: AGENT_ACTIVITY_STATUS.RUNNING,
+      kind: AGENT_STEP_KIND.ACTION,
+      step: "Writing this pass from the files just read.",
+    });
+    const lines = buildTranscript(writing);
+    expect(lines).toHaveLength(2);
+    expect(lines[0]?.live).toBe(false);
+    expect(lines[1]?.live).toBe(true);
+    expect(lines[1]?.step.text).toBe("Writing this pass from the files just read.");
   });
 });
 

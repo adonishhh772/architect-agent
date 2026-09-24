@@ -12,6 +12,30 @@ describe("graphToMermaid", () => {
     expect(diagram).toContain("-->|calls|");
   });
 
+  it("groups source files into folders instead of one chip per file", () => {
+    const diagram = graphToMermaid({
+      nodes: [
+        node("m1", GRAPH_NODE_KIND.MODULE, "backend/app/middleware/http_logging.py"),
+        node("m2", GRAPH_NODE_KIND.MODULE, "backend/app/orchestration/agent_runner.py"),
+        node("m3", GRAPH_NODE_KIND.MODULE, "backend/app/services/llm/prompts.py"),
+      ],
+      edges: [
+        {
+          id: "e1",
+          source: "m3",
+          target: "m1",
+          kind: "imports",
+          bidirectional: false,
+          provenance: { kind: "observed", confidence: 1, references: [] },
+        },
+      ],
+    });
+    expect(diagram).toContain("backend/app/middleware");
+    expect(diagram).toContain("backend/app/services/llm");
+    expect(diagram).not.toContain("http_logging.py");
+    expect(diagram).toContain("-->|imports|");
+  });
+
   it("returns a placeholder when the graph is empty", () => {
     expect(graphToMermaid({ nodes: [], edges: [] })).toContain("No architecture nodes");
   });

@@ -97,7 +97,7 @@ export function MermaidDiagram({ chart, onSelectLabel }: MermaidDiagramProps): J
       </div>
       <div
         ref={containerRef}
-        className="overflow-auto rounded-xl bg-[var(--md-surface-container-high)] p-4 [&_g.node]:cursor-pointer"
+        className="architecture-diagram overflow-auto rounded-xl bg-[var(--md-surface-container-high)] p-4 [&_g.node]:cursor-pointer [&_svg]:h-auto [&_svg]:max-w-none"
         data-testid="architecture-mermaid"
         dangerouslySetInnerHTML={{ __html: svg }}
       />

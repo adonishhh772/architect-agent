@@ -14,6 +14,14 @@ const DEFAULT_OPENAI_BASE = "https://api.openai.com/v1";
 const COMPLETION_TOKEN_MODEL = /^(?:o1|o3|o4|gpt-4\.1|gpt-5)(?:$|[-.])/i;
 const DEFAULT_TEMPERATURE = 0.2;
 
+export function readCompletionText(content: string | null | undefined, reasoningContent: string | null | undefined): string {
+  const answer = content?.trim() ?? "";
+  if (answer) {
+    return answer;
+  }
+  return reasoningContent?.trim() ?? "";
+}
+
 export function openAiModelUsesCompletionTokens(modelId: string): boolean {
   return COMPLETION_TOKEN_MODEL.test(modelId.trim());
 }
@@ -117,12 +125,16 @@ export function createOpenAiAdapter(
       }
 
       const data = (await response.json()) as {
-        choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
+        choices?: Array<{
+          message?: { content?: string | null; reasoning_content?: string | null };
+          finish_reason?: string;
+        }>;
         usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
         model?: string;
       };
 
-      const content = data.choices?.[0]?.message?.content ?? "";
+      const message = data.choices?.[0]?.message;
+      const content = readCompletionText(message?.content, message?.reasoning_content);
       if (!content) {
         throw new ProviderError(providerId, "malformed_response", "Empty completion");
       }

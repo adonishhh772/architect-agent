@@ -14,93 +14,91 @@ const AGENT_LABEL: Record<(typeof AUDIT_AGENT)[keyof typeof AUDIT_AGENT], string
   [AUDIT_AGENT.VERIFIER]: "Verifier",
 };
 
-const STATUS_LABEL: Record<(typeof AGENT_WORK_STATUS)[keyof typeof AGENT_WORK_STATUS], string> = {
-  [AGENT_WORK_STATUS.PENDING]: "Waiting",
-  [AGENT_WORK_STATUS.RUNNING]: "Working",
-  [AGENT_WORK_STATUS.COMPLETED]: "Done",
-  [AGENT_WORK_STATUS.SKIPPED]: "Skipped",
-  [AGENT_WORK_STATUS.FAILED]: "Failed",
-};
-
 interface AgentActivityPanelProps {
   agents: AgentWorkItem[];
 }
 
+interface TranscriptLine {
+  id: string;
+  agentId: AgentWorkItem["agentId"];
+  step: AgentWorkStep;
+  live: boolean;
+}
+
 export function AgentActivityPanel({ agents }: AgentActivityPanelProps): JSX.Element {
+  const feedRef = useRef<HTMLOListElement>(null);
+  const lines = buildTranscript(agents);
+  const lineCount = lines.length;
+
+  useEffect(() => {
+    const feed = feedRef.current;
+    if (!feed) {
+      return;
+    }
+    feed.scrollTop = feed.scrollHeight;
+  }, [lineCount]);
+
   return (
-    <ol className="mt-4 max-h-[28rem] space-y-3 overflow-y-auto pr-1" data-testid="agent-activity" aria-live="polite">
-      {agents.map((agent) => (
-        <AgentActivityItem key={agent.agentId} agent={agent} />
+    <ol
+      ref={feedRef}
+      className="mt-4 max-h-[32rem] space-y-1 overflow-y-auto rounded-2xl border border-[var(--md-outline)]/30 bg-[var(--md-surface)]/80 p-3 font-mono text-sm"
+      data-testid="agent-activity"
+      aria-live="polite"
+      aria-label="Live agent activity"
+    >
+      {lines.map((line) => (
+        <TranscriptRow key={line.id} line={line} />
       ))}
     </ol>
   );
 }
 
-interface AgentActivityItemProps {
-  agent: AgentWorkItem;
+interface TranscriptRowProps {
+  line: TranscriptLine;
 }
 
-function AgentActivityItem({ agent }: AgentActivityItemProps): JSX.Element {
-  const itemRef = useRef<HTMLLIElement>(null);
-
-  useEffect(() => {
-    if (agent.status !== AGENT_WORK_STATUS.RUNNING || !itemRef.current) {
-      return;
-    }
-    itemRef.current.scrollIntoView({ block: "nearest" });
-  }, [agent.status, agent.steps.length]);
-
+function TranscriptRow({ line }: TranscriptRowProps): JSX.Element {
+  const thinking = isThinkingStep(line.step);
   return (
     <li
-      ref={itemRef}
-      className="rounded-xl border border-[var(--md-outline)]/30 bg-[var(--md-surface-container-high)]/40 p-3"
-      data-testid={`agent-activity-${agent.agentId}`}
+      className={`flex items-start gap-2 rounded-lg px-2 py-1.5 ${
+        line.live ? "bg-[var(--md-primary-container)]/40 text-[var(--md-on-surface)]" : "text-[var(--md-on-surface-variant)]"
+      }`}
+      data-testid={thinking ? `agent-thinking-${line.agentId}` : `agent-line-${line.id}`}
+      data-live={line.live ? "true" : "false"}
     >
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm font-semibold text-[var(--md-on-surface)]">{AGENT_LABEL[agent.agentId]}</p>
-        <span className={statusClassName(agent.status)}>{STATUS_LABEL[agent.status]}</span>
-      </div>
-      {agent.steps.length > 0 && (
-        <ul className="mt-2 space-y-2 border-l border-[var(--md-primary)]/40 pl-3">
-          {agent.steps.map((step) => (
-            <AgentActivityStepRow key={step.id} agentId={agent.agentId} step={step} />
-          ))}
-        </ul>
-      )}
+      <span
+        className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
+          line.live ? "animate-pulse bg-[var(--md-primary)]" : "bg-[var(--md-outline)]"
+        }`}
+        aria-hidden
+      />
+      <span className="min-w-0">
+        <span className="mr-2 text-xs font-semibold uppercase tracking-wide text-[var(--md-primary)]">
+          {AGENT_LABEL[line.agentId]}
+        </span>
+        <span className={thinking ? "whitespace-pre-wrap text-[var(--md-on-surface)]" : undefined}>{line.step.text}</span>
+      </span>
     </li>
   );
 }
 
-interface AgentActivityStepRowProps {
-  agentId: string;
-  step: AgentWorkStep;
-}
-
-function AgentActivityStepRow({ agentId, step }: AgentActivityStepRowProps): JSX.Element {
-  if (isThinkingStep(step)) {
-    return (
-      <li className="text-sm leading-relaxed text-[var(--md-on-surface)]" data-testid={`agent-thinking-${agentId}`}>
-        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--md-primary)]">Thinking</p>
-        <p className="mt-1 whitespace-pre-wrap">{step.text}</p>
-      </li>
-    );
+export function buildTranscript(agents: AgentWorkItem[]): TranscriptLine[] {
+  const lines: TranscriptLine[] = [];
+  for (const agent of agents) {
+    const lastIndex = agent.steps.length - 1;
+    for (let stepIndex = 0; stepIndex < agent.steps.length; stepIndex += 1) {
+      const step = agent.steps[stepIndex];
+      if (!step) {
+        continue;
+      }
+      lines.push({
+        id: step.id,
+        agentId: agent.agentId,
+        step,
+        live: agent.status === AGENT_WORK_STATUS.RUNNING && stepIndex === lastIndex,
+      });
+    }
   }
-  return <li className="text-sm text-[var(--md-on-surface-variant)]">{step.text}</li>;
-}
-
-function statusClassName(status: AgentWorkItem["status"]): string {
-  const base = "rounded-full px-2 py-0.5 text-xs font-semibold uppercase tracking-wide";
-  if (status === AGENT_WORK_STATUS.RUNNING) {
-    return `${base} bg-[var(--md-primary)]/15 text-[var(--md-primary)]`;
-  }
-  if (status === AGENT_WORK_STATUS.COMPLETED) {
-    return `${base} bg-[var(--color-neon-green)]/15 text-[var(--color-neon-green)]`;
-  }
-  if (status === AGENT_WORK_STATUS.FAILED) {
-    return `${base} bg-[var(--color-neon-pink)]/15 text-[var(--color-neon-pink)]`;
-  }
-  if (status === AGENT_WORK_STATUS.SKIPPED) {
-    return `${base} bg-amber-500/15 text-amber-700 dark:text-amber-200`;
-  }
-  return `${base} bg-[var(--md-surface-container-high)] text-[var(--md-on-surface-variant)]`;
+  return lines;
 }

@@ -148,6 +148,13 @@ body {
   @apply rounded-2xl border border-[var(--md-outline)]/30 bg-[var(--md-surface-container)] p-6 shadow-md;
 }
 
+.architecture-diagram svg {
+  display: block;
+  max-width: none;
+  height: auto;
+  min-width: 720px;
+}
+
 .glass-card {
   @apply rounded-xl border border-slate-200/60 bg-white/80 p-6 shadow-lg backdrop-blur-xl dark:border-white/10 dark:bg-white/5;
 }

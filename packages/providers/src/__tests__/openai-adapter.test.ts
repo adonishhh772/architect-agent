@@ -1,6 +1,6 @@
 import { PROVIDER_ID, type ProviderSettings } from "@sentinel/schema";
 import { describe, expect, it } from "vitest";
-import { createOpenAiAdapter, openAiModelUsesCompletionTokens } from "../openai-adapter.js";
+import { createOpenAiAdapter, openAiModelUsesCompletionTokens, readCompletionText } from "../openai-adapter.js";
 import type { FetchFn } from "../types.js";
 
 describe("openAiModelUsesCompletionTokens", () => {
@@ -15,6 +15,17 @@ describe("openAiModelUsesCompletionTokens", () => {
     expect(openAiModelUsesCompletionTokens("gpt-4o")).toBe(false);
     expect(openAiModelUsesCompletionTokens("gpt-4.1")).toBe(true);
     expect(openAiModelUsesCompletionTokens("gpt-4.1-mini")).toBe(true);
+  });
+});
+
+describe("readCompletionText", () => {
+  it("uses the answer when it is present", () => {
+    expect(readCompletionText("{\"findings\":[]}", "thinking")).toBe("{\"findings\":[]}");
+  });
+
+  it("falls back to reasoning text when the answer is empty", () => {
+    expect(readCompletionText("", "{\"findings\":[]}")).toBe("{\"findings\":[]}");
+    expect(readCompletionText(null, "  ")).toBe("");
   });
 });
 

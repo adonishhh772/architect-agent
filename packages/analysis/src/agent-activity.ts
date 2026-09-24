@@ -25,6 +25,7 @@ export interface AgentActivityUpdate {
 
 export const AGENT_ACTIVITY_TEXT = {
   START: "Starting this pass.",
+  WRITING_REVIEW: "Writing this pass from the files just read.",
   FOLLOW_UP: "The model asked for more evidence before writing findings.",
   NO_FILES: "No indexed files matched this agent's scope.",
   PULL_REQUEST: "Reading the open pull request diff.",
@@ -32,6 +33,7 @@ export const AGENT_ACTIVITY_TEXT = {
 } as const;
 
 const FILE_PREVIEW_LIMIT = 4;
+export const LIVE_FILE_READ_LIMIT = 12;
 const TOOL_TARGET_LIMIT = 80;
 const THINKING_LIMIT = 600;
 
@@ -54,6 +56,17 @@ export function describeEvidenceRead(agentId: string, paths: string[]): string {
     return `Reading ${paths.length} files: ${names}.`;
   }
   return `Reading ${paths.length} files: ${names}, and ${hiddenCount} more.`;
+}
+
+export function describeFileRead(path: string): string {
+  return `Reading ${path}.`;
+}
+
+export function describeRemainingFileReads(hiddenCount: number): string {
+  if (hiddenCount === 1) {
+    return "Reading 1 more file.";
+  }
+  return `Reading ${hiddenCount} more files.`;
 }
 
 export function describeReviewRound(roundNumber: number): string {

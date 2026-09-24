@@ -166,7 +166,7 @@ export function AnalysisWorkspacePage(): JSX.Element {
     : session.vaultStatus !== "unlocked"
       ? "Unlock the vault on Providers."
       : !session.getModelApiKey()
-        ? "Save a model API key in the vault."
+        ? "Save a provider API key in the vault."
         : !session.connectionTested
           ? "Run provider connection test on Providers."
           : !session.aiTransmissionConfirmed

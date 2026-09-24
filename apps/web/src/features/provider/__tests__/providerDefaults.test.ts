@@ -4,6 +4,10 @@ import {
   DEFAULT_REASONING_MODEL_BY_PROVIDER,
   getDefaultReasoningModelId,
   getReasoningPresetsForProvider,
+  inferReasoningEffort,
+  modelIdForReasoningEffort,
+  REASONING_EFFORT,
+  resolveSelectedEffort,
 } from "../providerDefaults";
 
 describe("providerDefaults reasoning models", () => {
@@ -26,5 +30,26 @@ describe("providerDefaults reasoning models", () => {
       "gpt-4.1",
       "gpt-4.1-mini",
     ]);
+  });
+
+  it("maps each effort preset to a provider model without exposing the choice in the label", () => {
+    expect(modelIdForReasoningEffort(PROVIDER_ID.OPENAI, REASONING_EFFORT.LOW)).toBe("gpt-4.1-mini");
+    expect(modelIdForReasoningEffort(PROVIDER_ID.OPENAI, REASONING_EFFORT.MEDIUM)).toBe("gpt-5-mini");
+    expect(modelIdForReasoningEffort(PROVIDER_ID.OPENAI, REASONING_EFFORT.HIGH)).toBe("gpt-5");
+    expect(modelIdForReasoningEffort(PROVIDER_ID.DEEPSEEK, REASONING_EFFORT.HIGH)).toBe("deepseek-v4-pro");
+    expect(modelIdForReasoningEffort(PROVIDER_ID.GEMINI, REASONING_EFFORT.MEDIUM)).toBe("gemini-2.5-flash");
+  });
+
+  it("infers effort from a known model and falls back to high", () => {
+    expect(inferReasoningEffort(PROVIDER_ID.OPENAI, "gpt-5-mini")).toBe(REASONING_EFFORT.MEDIUM);
+    expect(inferReasoningEffort(PROVIDER_ID.OPENAI, "unknown-model")).toBe(REASONING_EFFORT.HIGH);
+  });
+
+  it("keeps a stored effort even when the model id does not match that tier", () => {
+    expect(resolveSelectedEffort(PROVIDER_ID.GEMINI, "gemini-2.5-pro", REASONING_EFFORT.LOW)).toBe(
+      REASONING_EFFORT.LOW,
+    );
+    expect(resolveSelectedEffort(PROVIDER_ID.GEMINI, "gemini-2.5-flash", undefined)).toBe(REASONING_EFFORT.MEDIUM);
+    expect(resolveSelectedEffort("not-a-provider", "gemini-2.5-pro", undefined)).toBe(REASONING_EFFORT.HIGH);
   });
 });

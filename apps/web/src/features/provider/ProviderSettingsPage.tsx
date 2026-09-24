@@ -17,9 +17,13 @@ import { WorkflowStepper } from "../../components/material/WorkflowStepper";
 import { useSession } from "../session/SessionProvider";
 import { VaultPanel } from "../vault/VaultPanel";
 import {
-  getDefaultReasoningModelId,
-  getReasoningPresetsForProvider,
   isProviderId,
+  isReasoningEffort,
+  modelIdForReasoningEffort,
+  REASONING_EFFORT_OPTIONS,
+  reasoningEffortLabel,
+  resolveSelectedEffort,
+  type ReasoningEffort,
 } from "./providerDefaults";
 
 const PROVIDER_OPTIONS = [
@@ -29,6 +33,11 @@ const PROVIDER_OPTIONS = [
   { value: PROVIDER_ID.DEEPSEEK, label: "DeepSeek" },
   { value: PROVIDER_ID.OPENAI_COMPATIBLE, label: "OpenAI-compatible (custom)" },
 ] as const;
+
+const EFFORT_SELECT_OPTIONS = REASONING_EFFORT_OPTIONS.map((option) => ({
+  value: option.value,
+  label: option.label,
+}));
 
 function getProviderDisplayLabel(providerId: string): string {
   return PROVIDER_OPTIONS.find((option) => option.value === providerId)?.label ?? providerId;
@@ -44,30 +53,14 @@ export function ProviderSettingsPage(): JSX.Element {
   const capabilities = getProviderCapabilities(session.providerSettings.providerId);
   const vaultUnlocked = session.vaultStatus === "unlocked";
   const hasModelKey = vaultUnlocked && session.hasModelApiKey;
-  const reasoningPresets = getReasoningPresetsForProvider(session.providerSettings.providerId);
-  const activeReasoningPreset = reasoningPresets.find(
-    (preset) => preset.id === session.providerSettings.modelId,
+  const selectedEffort = resolveSelectedEffort(
+    session.providerSettings.providerId,
+    session.providerSettings.modelId,
+    session.providerSettings.reasoningEffort,
   );
-  const reasoningPresetOptions = useMemo(() => {
-    const options = reasoningPresets.map((preset) => ({
-      value: preset.id,
-      label: preset.label,
-    }));
-    const modelIdInPresets = options.some(
-      (option) => option.value === session.providerSettings.modelId,
-    );
-    if (!modelIdInPresets && session.providerSettings.modelId) {
-      options.push({
-        value: session.providerSettings.modelId,
-        label: `Custom: ${session.providerSettings.modelId}`,
-      });
-    }
-    return options;
-  }, [reasoningPresets, session.providerSettings.modelId]);
-  const reasoningPresetSelectValue = session.providerSettings.modelId;
+  const selectedEffortOption = REASONING_EFFORT_OPTIONS.find((option) => option.value === selectedEffort);
   const savedProviderLabel = getProviderDisplayLabel(session.providerSettings.providerId);
-  const activePresetLabel =
-    activeReasoningPreset?.label ?? `Custom model (${session.providerSettings.modelId})`;
+  const activePresetLabel = reasoningEffortLabel(selectedEffort);
   const vaultStoresMatchingModel =
     session.vaultSavedProviderSettings?.modelId === session.providerSettings.modelId &&
     session.vaultSavedProviderSettings?.providerId === session.providerSettings.providerId;
@@ -87,7 +80,7 @@ export function ProviderSettingsPage(): JSX.Element {
       {
         id: "configure",
         label: "Configure provider",
-        description: "Choose provider, model, and store API key",
+        description: "Choose provider, reasoning effort, and store the API key",
         icon: PlugZap,
         status: !unlockComplete
           ? ("pending" as const)
@@ -98,7 +91,7 @@ export function ProviderSettingsPage(): JSX.Element {
       {
         id: "test",
         label: "Test connection",
-        description: "Verify authentication and model access",
+        description: "Verify the provider accepts the saved API key",
         icon: Cable,
         status: !configureComplete
           ? ("pending" as const)
@@ -124,7 +117,8 @@ export function ProviderSettingsPage(): JSX.Element {
       ProviderSettingsSchema.parse({
         ...session.providerSettings,
         providerId,
-        modelId: getDefaultReasoningModelId(providerId),
+        modelId: modelIdForReasoningEffort(providerId, selectedEffort),
+        reasoningEffort: selectedEffort,
         endpoint: providerId === PROVIDER_ID.OPENAI_COMPATIBLE ? session.providerSettings.endpoint : undefined,
         customEndpointConfirmed:
           providerId === PROVIDER_ID.OPENAI_COMPATIBLE
@@ -133,23 +127,27 @@ export function ProviderSettingsPage(): JSX.Element {
       }),
     );
     setTestMessage(
-      `Provider set to ${providerId}. Model ID set to top reasoning default (${getDefaultReasoningModelId(providerId)}).`,
+      `Provider set to ${getProviderDisplayLabel(providerId)}. Reasoning effort is ${reasoningEffortLabel(selectedEffort)}.`,
     );
   };
 
-  const handleReasoningPresetChange = (presetId: string): void => {
-    if (presetId === "custom") {
-      setTestMessage("Enter a custom model ID supported by your compatible endpoint.");
+  const handleReasoningEffortChange = (effortValue: string): void => {
+    if (!isReasoningEffort(effortValue) || !isProviderId(session.providerSettings.providerId)) {
       return;
     }
+    applyEffort(session.providerSettings.providerId, effortValue);
+  };
+
+  const applyEffort = (providerId: (typeof PROVIDER_ID)[keyof typeof PROVIDER_ID], effort: ReasoningEffort): void => {
     session.setProviderSettings(
       ProviderSettingsSchema.parse({
         ...session.providerSettings,
-        modelId: presetId,
+        providerId,
+        modelId: modelIdForReasoningEffort(providerId, effort),
+        reasoningEffort: effort,
       }),
     );
-    const preset = reasoningPresets.find((entry) => entry.id === presetId);
-    setTestMessage(preset ? `Reasoning preset: ${preset.label}` : "Model ID updated.");
+    setTestMessage(`Reasoning effort set to ${reasoningEffortLabel(effort)}.`);
   };
 
   const handleSaveKeyToVault = async (): Promise<void> => {
@@ -196,7 +194,7 @@ export function ProviderSettingsPage(): JSX.Element {
     try {
       const key = session.getModelApiKey();
       if (!key) {
-        setTestMessage("Save a model API key in the vault first.");
+        setTestMessage("Save a provider API key in the vault first.");
         return;
       }
       const adapter = createProviderAdapter(session.providerSettings);
@@ -246,11 +244,10 @@ export function ProviderSettingsPage(): JSX.Element {
             <p className="mt-1 text-sm text-[var(--md-on-surface)]">
               Provider: <strong>{savedProviderLabel}</strong>
             </p>
-            <p className="mt-1 font-mono text-base text-[var(--md-primary)]" data-testid="saved-model-id">
-              {session.providerSettings.modelId}
+            <p className="mt-1 text-base text-[var(--md-primary)]" data-testid="saved-reasoning-effort">
+              Reasoning effort: {activePresetLabel}
             </p>
             <p className="mt-1 text-xs text-[var(--md-on-surface-variant)]">
-              {activePresetLabel}
               {vaultUnlocked && vaultStoresMatchingModel
                 ? " · stored in encrypted vault"
                 : " · saved in this browser"}
@@ -263,9 +260,8 @@ export function ProviderSettingsPage(): JSX.Element {
           >
             <p className="text-sm text-[var(--md-on-surface)]">No provider saved yet</p>
             <p className="mt-1 text-xs leading-relaxed text-[var(--md-on-surface-variant)]">
-              The dropdowns below show suggested defaults only (currently {savedProviderLabel},{" "}
-              {session.providerSettings.modelId}). Nothing is stored until you change provider, model,
-              or save an API key to the vault.
+              The choices below are suggestions only (currently {savedProviderLabel}, {activePresetLabel.toLowerCase()}{" "}
+              effort). Nothing is stored until you change the provider, the effort, or save an API key to the vault.
             </p>
           </div>
         )}
@@ -279,32 +275,17 @@ export function ProviderSettingsPage(): JSX.Element {
         />
 
         <MaterialSelect
-          label="Reasoning model preset"
-          testId="reasoning-model-preset"
-          value={reasoningPresetSelectValue}
-          options={reasoningPresetOptions}
-          onChange={handleReasoningPresetChange}
+          label="Reasoning effort"
+          testId="reasoning-effort"
+          value={selectedEffort}
+          options={EFFORT_SELECT_OPTIONS}
+          onChange={handleReasoningEffortChange}
         />
-        {activeReasoningPreset && (
-          <p className="text-xs leading-relaxed text-[var(--md-on-surface-variant)]">
-            {activeReasoningPreset.description}
+        {selectedEffortOption && (
+          <p className="text-xs leading-relaxed text-[var(--md-on-surface-variant)]" data-testid="reasoning-effort-description">
+            {selectedEffortOption.description}
           </p>
         )}
-
-        <MaterialTextField
-          label="Model ID (manual override)"
-          data-testid="model-id-input"
-          value={session.providerSettings.modelId}
-          helperText={`Top reasoning default for ${session.providerSettings.providerId}: ${getDefaultReasoningModelId(session.providerSettings.providerId)}. Confirm the ID exists on your account.`}
-          onChange={(event) =>
-            session.setProviderSettings(
-              ProviderSettingsSchema.parse({
-                ...session.providerSettings,
-                modelId: event.target.value,
-              }),
-            )
-          }
-        />
 
         {session.providerSettings.providerId === PROVIDER_ID.OPENAI_COMPATIBLE && (
           <>
@@ -342,12 +323,12 @@ export function ProviderSettingsPage(): JSX.Element {
 
         {!vaultUnlocked && (
           <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-100">
-            Unlock the credentials vault above before you can enter or save a model API key.
+            Unlock the credentials vault above before you can enter or save an API key.
           </p>
         )}
 
         <MaterialTextField
-          label="Model API key"
+          label="Provider API key"
           type="password"
           autoComplete="off"
           allowReveal
@@ -403,7 +384,7 @@ export function ProviderSettingsPage(): JSX.Element {
         <ul className="mt-3 space-y-2 text-sm text-[var(--md-on-surface-variant)]">
           <li>Browser callable: {capabilities.browserCallable ? "yes" : "no"}</li>
           <li>Structured output: {capabilities.structuredOutput ? "yes" : "partial"}</li>
-          <li>Model discovery: {capabilities.modelDiscovery ? "yes" : "no"}</li>
+          <li>Can list provider models: {capabilities.modelDiscovery ? "yes" : "no"}</li>
         </ul>
         {capabilities.notes.map((note) => (
           <p key={note} className="mt-2 text-sm text-[var(--md-on-surface-variant)]">

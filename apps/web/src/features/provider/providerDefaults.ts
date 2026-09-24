@@ -150,3 +150,129 @@ export function getDefaultReasoningModelId(
 ): string {
   return DEFAULT_REASONING_MODEL_BY_PROVIDER[providerId];
 }
+
+export const REASONING_EFFORT = {
+  LOW: "low",
+  MEDIUM: "medium",
+  HIGH: "high",
+} as const;
+
+export type ReasoningEffort = (typeof REASONING_EFFORT)[keyof typeof REASONING_EFFORT];
+
+export const REASONING_EFFORT_OPTIONS: Array<{
+  value: ReasoningEffort;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: REASONING_EFFORT.LOW,
+    label: "Low",
+    description: "Faster reviews. Less depth on each finding.",
+  },
+  {
+    value: REASONING_EFFORT.MEDIUM,
+    label: "Medium",
+    description: "Balanced depth and speed for a normal threat model.",
+  },
+  {
+    value: REASONING_EFFORT.HIGH,
+    label: "High",
+    description: "Deepest analysis. Takes longer and uses more of the provider quota.",
+  },
+];
+
+const MODEL_ID_BY_EFFORT: Record<
+  (typeof PROVIDER_ID)[keyof typeof PROVIDER_ID],
+  Record<ReasoningEffort, string>
+> = {
+  [PROVIDER_ID.OPENAI]: {
+    [REASONING_EFFORT.LOW]: "gpt-4.1-mini",
+    [REASONING_EFFORT.MEDIUM]: "gpt-5-mini",
+    [REASONING_EFFORT.HIGH]: "gpt-5",
+  },
+  [PROVIDER_ID.ANTHROPIC]: {
+    [REASONING_EFFORT.LOW]: "claude-3-7-sonnet-20250219",
+    [REASONING_EFFORT.MEDIUM]: "claude-sonnet-4-20250514",
+    [REASONING_EFFORT.HIGH]: "claude-opus-4-20250514",
+  },
+  [PROVIDER_ID.GEMINI]: {
+    [REASONING_EFFORT.LOW]: "gemini-2.0-flash-thinking-exp",
+    [REASONING_EFFORT.MEDIUM]: "gemini-2.5-flash",
+    [REASONING_EFFORT.HIGH]: "gemini-2.5-pro",
+  },
+  [PROVIDER_ID.DEEPSEEK]: {
+    [REASONING_EFFORT.LOW]: "deepseek-reasoner",
+    [REASONING_EFFORT.MEDIUM]: "deepseek-v4-flash",
+    [REASONING_EFFORT.HIGH]: "deepseek-v4-pro",
+  },
+  [PROVIDER_ID.OPENAI_COMPATIBLE]: {
+    [REASONING_EFFORT.LOW]: "deepseek-reasoner",
+    [REASONING_EFFORT.MEDIUM]: "deepseek-v4-flash",
+    [REASONING_EFFORT.HIGH]: "deepseek-v4-pro",
+  },
+};
+
+export function isReasoningEffort(value: string): value is ReasoningEffort {
+  return (
+    value === REASONING_EFFORT.LOW ||
+    value === REASONING_EFFORT.MEDIUM ||
+    value === REASONING_EFFORT.HIGH
+  );
+}
+
+export function modelIdForReasoningEffort(
+  providerId: (typeof PROVIDER_ID)[keyof typeof PROVIDER_ID],
+  effort: ReasoningEffort,
+): string {
+  return MODEL_ID_BY_EFFORT[providerId][effort];
+}
+
+export function inferReasoningEffort(
+  providerId: (typeof PROVIDER_ID)[keyof typeof PROVIDER_ID],
+  modelId: string,
+): ReasoningEffort {
+  const models = MODEL_ID_BY_EFFORT[providerId];
+  if (models[REASONING_EFFORT.LOW] === modelId) {
+    return REASONING_EFFORT.LOW;
+  }
+  if (models[REASONING_EFFORT.MEDIUM] === modelId) {
+    return REASONING_EFFORT.MEDIUM;
+  }
+  if (models[REASONING_EFFORT.HIGH] === modelId) {
+    return REASONING_EFFORT.HIGH;
+  }
+  return REASONING_EFFORT.HIGH;
+}
+
+export function resolveSelectedEffort(
+  providerId: string,
+  modelId: string,
+  storedEffort: string | undefined,
+): ReasoningEffort {
+  if (storedEffort && isReasoningEffort(storedEffort)) {
+    return storedEffort;
+  }
+  if (!isProviderId(providerId)) {
+    return REASONING_EFFORT.HIGH;
+  }
+  return inferReasoningEffort(providerId, modelId);
+}
+
+export function alignSettingsToReasoningEffort<T extends { providerId: string; modelId: string; reasoningEffort?: string }>(
+  settings: T,
+): T {
+  if (!isProviderId(settings.providerId)) {
+    return settings;
+  }
+  const effort = resolveSelectedEffort(settings.providerId, settings.modelId, settings.reasoningEffort);
+  return {
+    ...settings,
+    reasoningEffort: effort,
+    modelId: modelIdForReasoningEffort(settings.providerId, effort),
+  };
+}
+
+export function reasoningEffortLabel(effort: ReasoningEffort): string {
+  const match = REASONING_EFFORT_OPTIONS.find((option) => option.value === effort);
+  return match ? match.label : REASONING_EFFORT_OPTIONS[2].label;
+}

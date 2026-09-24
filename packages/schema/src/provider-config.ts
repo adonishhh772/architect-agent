@@ -10,6 +10,7 @@ export const ProviderSettingsSchema = z.object({
     PROVIDER_ID.OPENAI_COMPATIBLE,
   ]),
   modelId: z.string().min(1).max(200),
+  reasoningEffort: z.enum(["low", "medium", "high"]).optional(),
   endpoint: z.string().url().optional(),
   customEndpointConfirmed: z.boolean().default(false),
   contextLimit: z.number().int().positive().optional(),

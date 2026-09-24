@@ -177,7 +177,7 @@ function resolveBlockedReason(input: {
     return "This provider cannot be called from the browser.";
   }
   if (!input.apiKey) {
-    return "Save a model API key in the vault before asking a follow-up.";
+    return "Save a provider API key in the vault before asking a follow-up.";
   }
   if (!input.transmissionConfirmed) {
     return "Confirm source transmission before asking a follow-up.";

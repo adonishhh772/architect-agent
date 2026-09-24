@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { describeAgentFileCoverage } from "../agent-file-coverage.js";
 import { buildEvidenceCorpus, rankSecurityRelevantPaths } from "../evidence-corpus.js";
 import { buildRepositoryStore } from "@sentinel/ingestion";
 
@@ -11,6 +12,29 @@ describe("rankSecurityRelevantPaths", () => {
     ]);
     expect(ordered[0]).toContain("auth");
     expect(ordered[1]).toContain("api");
+  });
+});
+
+describe("describeAgentFileCoverage", () => {
+  it("states how many indexed files the agents did not read", () => {
+    const coverage = describeAgentFileCoverage(80, 105);
+    expect(coverage.unreadCount).toBe(25);
+    expect(coverage.status).toBe("partial");
+    expect(coverage.detail).toContain("did not read 25");
+  });
+
+  it("states that every indexed file was read", () => {
+    const coverage = describeAgentFileCoverage(4, 4);
+    expect(coverage.unreadCount).toBe(0);
+    expect(coverage.status).toBe("complete");
+    expect(coverage.detail).toContain("0 files were only partly read");
+  });
+
+  it("stays partial while a long file is only partly read", () => {
+    const coverage = describeAgentFileCoverage(4, 4, 1);
+    expect(coverage.unreadCount).toBe(0);
+    expect(coverage.status).toBe("partial");
+    expect(coverage.detail).toContain("1 files were only partly read");
   });
 });
 

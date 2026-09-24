@@ -32,7 +32,7 @@ export function buildAuditMemory(input: {
     commitSha: input.commitSha,
     architectureBrief: input.architectureBrief,
     filesRead: [...readSet],
-    filesPartial: [...new Set(input.pathsPartial)],
+    filesPartial: [...new Set(input.pathsPartial.filter((path) => !readSet.has(path)))],
     filesUnread,
     openQuestions,
     priorFindingKeys: input.findings.map((finding) => finding.stableKey),

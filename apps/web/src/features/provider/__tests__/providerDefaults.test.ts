@@ -19,6 +19,12 @@ describe("providerDefaults reasoning models", () => {
   it("includes flagship reasoning presets per provider", () => {
     expect(getReasoningPresetsForProvider(PROVIDER_ID.DEEPSEEK)[0]?.id).toBe("deepseek-v4-pro");
     expect(getReasoningPresetsForProvider(PROVIDER_ID.GEMINI)[0]?.id).toBe("gemini-2.5-pro");
-    expect(getReasoningPresetsForProvider(PROVIDER_ID.OPENAI)[0]?.id).toBe("o3");
+    expect(getReasoningPresetsForProvider(PROVIDER_ID.OPENAI)[0]?.id).toBe("gpt-5");
+    expect(getReasoningPresetsForProvider(PROVIDER_ID.OPENAI).map((preset) => preset.id)).toEqual([
+      "gpt-5",
+      "gpt-5-mini",
+      "gpt-4.1",
+      "gpt-4.1-mini",
+    ]);
   });
 });

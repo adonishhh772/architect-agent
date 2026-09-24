@@ -26,6 +26,7 @@ export interface DeepInvestigationAgentResult {
   attackPaths: AnalysisReport["attackPaths"];
   threatModelOverview?: string;
   architectureBrief?: string;
+  architectureMermaid?: string;
   agentTrace: AgentTraceEntry[];
   filesSampled: number;
   totalIndexedFiles: number;

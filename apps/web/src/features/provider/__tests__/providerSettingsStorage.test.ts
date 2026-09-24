@@ -68,4 +68,16 @@ describe("providerSettingsStorage", () => {
     expect(stored?.modelId).toBe("deepseek-v4-pro");
     expect(hasUserSavedProviderSettings()).toBe(true);
   });
+
+  it("replaces a saved o3 model with gpt-5", () => {
+    writeStoredProviderSettings({
+      providerId: PROVIDER_ID.OPENAI,
+      modelId: "o3",
+      customEndpointConfirmed: false,
+      requestTimeoutMs: 120_000,
+      maxConcurrency: 2,
+      maxRetries: 2,
+    });
+    expect(readStoredProviderSettings()?.modelId).toBe("gpt-5");
+  });
 });

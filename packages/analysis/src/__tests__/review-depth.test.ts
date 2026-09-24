@@ -88,8 +88,44 @@ describe("queryOsvAdvisories", () => {
     const result = await queryOsvAdvisories(contents, EMPTY_GRAPH, { fetchImpl });
     expect(result.status).toBe("complete");
     expect(result.findings[0]?.stableKey).toContain("GHSA-test-0000");
+    expect(result.findings[0]?.title).toContain("direct-only");
+    expect(result.findings[0]?.status).toBe(FINDING_STATUS.PLAUSIBLE_THREAT);
     expect(result.findings[0]?.mitigation).toContain("Upgrade lodash");
     expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("marks an imported package and a lockfile-only package separately", async () => {
+    const contents = new Map<string, string>([
+      ["package.json", JSON.stringify({ dependencies: { lodash: "4.17.15" } })],
+      [
+        "package-lock.json",
+        JSON.stringify({
+          packages: {
+            "node_modules/lodash": { version: "4.17.15" },
+            "node_modules/left-pad": { version: "1.3.0" },
+          },
+        }),
+      ],
+      ["src/app.ts", "import lodash from \"lodash\";\n"],
+    ]);
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { queries: Array<{ package: { name: string } }> };
+      return new Response(
+        JSON.stringify({
+          results: body.queries.map((query) => ({
+            vulns: [{ id: `GHSA-${query.package.name}`, summary: "Example advisory" }],
+          })),
+        }),
+        { status: 200 },
+      );
+    });
+    const result = await queryOsvAdvisories(contents, EMPTY_GRAPH, { fetchImpl });
+    const imported = result.findings.find((finding) => finding.title.includes("lodash"));
+    const lockfileOnly = result.findings.find((finding) => finding.title.includes("left-pad"));
+    expect(imported?.title).toContain("imported");
+    expect(imported?.status).toBe(FINDING_STATUS.CODE_SUPPORTED);
+    expect(lockfileOnly?.title).toContain("lockfile-only");
+    expect(lockfileOnly?.status).toBe(FINDING_STATUS.INSUFFICIENT_EVIDENCE);
   });
 
   it("records a failure when the advisory service is unreachable", async () => {
@@ -103,6 +139,34 @@ describe("queryOsvAdvisories", () => {
     expect(result.status).toBe("failed");
     expect(result.findings).toEqual([]);
     expect(result.detail).toContain("network down");
+  });
+
+  it("checks every package in a lockfile under the inventory limit", async () => {
+    const packages: Record<string, { version: string }> = {};
+    const dependencies: Record<string, string> = {};
+    for (let index = 0; index < 120; index += 1) {
+      const name = `pkg-${String(index).padStart(3, "0")}`;
+      packages[`node_modules/${name}`] = { version: "1.0.0" };
+      dependencies[name] = "1.0.0";
+    }
+    packages["node_modules/lodash"] = { version: "4.17.15" };
+    const contents = new Map<string, string>([
+      ["package.json", JSON.stringify({ dependencies: { ...dependencies, lodash: "4.17.15" } })],
+      ["package-lock.json", JSON.stringify({ packages })],
+      ["src/app.ts", "import lodash from \"lodash\";\n"],
+    ]);
+    const queried: string[] = [];
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { queries: Array<{ package: { name: string } }> };
+      for (const query of body.queries) {
+        queried.push(query.package.name);
+      }
+      return new Response(JSON.stringify({ results: body.queries.map(() => ({ vulns: [] })) }), { status: 200 });
+    });
+    const result = await queryOsvAdvisories(contents, EMPTY_GRAPH, { fetchImpl });
+    expect(result.status).toBe("complete");
+    expect(queried).toContain("lodash");
+    expect(queried).toHaveLength(121);
   });
 
   it("skips lookup when no lockfile coordinates exist", async () => {
@@ -120,16 +184,18 @@ describe("risk ranking", () => {
     const ranked = rankFindings([
       sampleFinding({
         id: "finding-low",
-        stableKey: "architecture-note-a",
+        stableKey: "eval-src-low-1",
         title: "Shared weakness",
         status: FINDING_STATUS.ARCHITECTURE_CONCERN,
         category: "architecture",
+        references: [{ path: "src/low.ts", startLine: 4, endLine: 4 }],
       }),
       sampleFinding({
         id: "finding-high",
         stableKey: "eval-src-app-1",
         title: "Shared weakness",
         status: FINDING_STATUS.CODE_SUPPORTED,
+        references: [{ path: "src/high.ts", startLine: 12, endLine: 12 }],
       }),
     ]);
     const primary = ranked.find((finding) => !finding.duplicateOfStableKey);
@@ -139,6 +205,41 @@ describe("risk ranking", () => {
     const recommendations = buildRankedRecommendations(ranked);
     expect(recommendations).toHaveLength(1);
     expect(recommendations[0]?.relatedFindingIds).toContain("finding-low");
+    expect(recommendations[0]?.citations.map((citation) => citation.path)).toEqual(["src/high.ts", "src/low.ts"]);
+    expect(primary?.references.map((reference) => reference.path)).toEqual(["src/high.ts", "src/low.ts"]);
+  });
+
+  it("groups the same scanner rule across files and keeps a different rule separate", () => {
+    const ranked = rankFindings([
+      sampleFinding({
+        id: "finding-sql-a",
+        stableKey: "sql-injection-src-a-1",
+        title: "Query built in the handler",
+        cweIds: ["CWE-89"],
+        references: [{ path: "src/a.ts", startLine: 3, endLine: 3 }],
+      }),
+      sampleFinding({
+        id: "finding-sql-b",
+        stableKey: "sql-injection-src-b-9",
+        title: "Another query built from input",
+        cweIds: ["CWE-89"],
+        references: [{ path: "src/b.ts", startLine: 9, endLine: 9 }],
+      }),
+      sampleFinding({
+        id: "finding-sql-format",
+        stableKey: "sql-interpolation-src-c-2",
+        title: "String formatted into SQL",
+        cweIds: ["CWE-89"],
+        references: [{ path: "src/c.ts", startLine: 2, endLine: 2 }],
+      }),
+    ]);
+    const recommendations = buildRankedRecommendations(ranked);
+    expect(recommendations).toHaveLength(2);
+    const injection = recommendations.find((recommendation) => recommendation.relatedFindingIds.includes("finding-sql-b"));
+    const interpolation = recommendations.find((recommendation) => recommendation.relatedFindingIds.includes("finding-sql-format"));
+    expect(injection?.citations.map((citation) => citation.path)).toEqual(["src/a.ts", "src/b.ts"]);
+    expect(interpolation?.relatedFindingIds).toEqual(["finding-sql-format"]);
+    expect(injection?.relatedFindingIds).not.toContain("finding-sql-format");
   });
 });
 

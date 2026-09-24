@@ -11,6 +11,12 @@ import type {
 import { ProviderError } from "./types.js";
 
 const DEFAULT_OPENAI_BASE = "https://api.openai.com/v1";
+const COMPLETION_TOKEN_MODEL = /^(?:o1|o3|o4|gpt-4\.1|gpt-5)(?:$|[-.])/i;
+const DEFAULT_TEMPERATURE = 0.2;
+
+export function openAiModelUsesCompletionTokens(modelId: string): boolean {
+  return COMPLETION_TOKEN_MODEL.test(modelId.trim());
+}
 
 export function createOpenAiAdapter(
   settings: ProviderSettings,
@@ -75,13 +81,17 @@ export function createOpenAiAdapter(
       apiKey: string,
       request: CompletionRequest,
     ): Promise<CompletionResult> {
+      const usesCompletionTokens = openAiModelUsesCompletionTokens(settings.modelId);
       const body: Record<string, unknown> = {
         model: settings.modelId,
         messages: request.messages,
-        temperature: request.temperature ?? 0.2,
       };
+      if (!usesCompletionTokens) {
+        body.temperature = request.temperature ?? DEFAULT_TEMPERATURE;
+      }
       if (request.maxOutputTokens) {
-        body.max_tokens = request.maxOutputTokens;
+        const tokenField = usesCompletionTokens ? "max_completion_tokens" : "max_tokens";
+        body[tokenField] = request.maxOutputTokens;
       }
       if (request.jsonSchema) {
         body.response_format = { type: "json_object" };

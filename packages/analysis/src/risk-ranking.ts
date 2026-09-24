@@ -1,5 +1,8 @@
 import { FINDING_STATUS, type AnalysisReport, type Finding } from "@sentinel/schema";
+import { SCANNER_RULE } from "./deterministic-scanners.js";
 import { isSuppressedDisposition } from "./disposition.js";
+import { collectFindingCitations, summarizeFindingCitations } from "./finding-citations.js";
+import { DETECTOR_RULE } from "./language-detectors.js";
 
 const IMPACT = {
   CODE_EXECUTION: 5,
@@ -20,15 +23,46 @@ const LIKELIHOOD = {
   MAX: 5,
 } as const;
 
-const RECOMMENDATION_LIMIT = 12;
+const STATIC_WEAKNESS_RULES = [
+  "secret-default",
+  "secret-log",
+  "unbounded-loop",
+  "ai-tool-auth",
+  "env-file",
+  "published-port",
+  "missing-auth-layer",
+  "eval",
+  "xss",
+] as const;
+
+const WEAKNESS_RULES = [...Object.values(SCANNER_RULE), ...Object.values(DETECTOR_RULE), ...STATIC_WEAKNESS_RULES].sort(
+  (left, right) => right.length - left.length,
+);
+
+export function vulnerabilityGroupKey(finding: Finding): string {
+  const rule = weaknessRuleId(finding.stableKey);
+  const cweIds = [...(finding.cweIds ?? [])].sort();
+  if (rule && cweIds.length > 0) {
+    return `rule:${rule}|cwe:${cweIds.join(",")}`;
+  }
+  if (rule) {
+    return `rule:${rule}`;
+  }
+  return `title:${finding.title.trim().toLowerCase()}`;
+}
+
+function weaknessRuleId(stableKey: string): string | undefined {
+  return WEAKNESS_RULES.find((rule) => stableKey === rule || stableKey.startsWith(`${rule}-`));
+}
 
 export function rankFindings(findings: Finding[]): Finding[] {
   const scored = findings.map(scoreFinding);
   const groups = new Map<string, Finding[]>();
   for (const finding of scored) {
-    const group = groups.get(finding.title) ?? [];
+    const key = vulnerabilityGroupKey(finding);
+    const group = groups.get(key) ?? [];
     group.push(finding);
-    groups.set(finding.title, group);
+    groups.set(key, group);
   }
 
   const flattened: Finding[] = [];
@@ -42,6 +76,7 @@ export function rankFindings(findings: Finding[]): Finding[] {
     flattened.push({
       ...primary,
       relatedFindingIds: duplicates.map((finding) => finding.id),
+      references: collectFindingCitations([primary, ...duplicates]),
     });
     for (const duplicate of duplicates) {
       flattened.push({
@@ -65,19 +100,27 @@ export function rankFindings(findings: Finding[]): Finding[] {
 }
 
 export function buildRankedRecommendations(findings: Finding[]): AnalysisReport["recommendations"] {
+  const findingById = new Map(findings.map((finding) => [finding.id, finding]));
   return findings
     .filter((finding) => !finding.duplicateOfStableKey && !isSuppressedDisposition(finding.disposition))
     .slice()
     .sort((left, right) => (left.remediationRank ?? Number.MAX_SAFE_INTEGER) - (right.remediationRank ?? Number.MAX_SAFE_INTEGER))
-    .slice(0, RECOMMENDATION_LIMIT)
-    .map((finding) => ({
-      id: `rec-${finding.stableKey}`,
-      priority: priorityForScore(finding.riskScore ?? 1),
-      title: finding.title,
-      description: finding.mitigation,
-      relatedFindingIds: [finding.id, ...finding.relatedFindingIds],
-      rationale: `Impact ${finding.impact ?? 0}, likelihood ${finding.likelihood ?? 0}, risk ${finding.riskScore ?? 0}. ${finding.severityRationale}`,
-    }));
+    .map((finding) => {
+      const related = finding.relatedFindingIds
+        .map((findingId) => findingById.get(findingId))
+        .filter((relatedFinding): relatedFinding is Finding => relatedFinding !== undefined);
+      const citationSummary = summarizeFindingCitations([finding, ...related]);
+      return {
+        id: `rec-${finding.stableKey}`,
+        priority: priorityForScore(finding.riskScore ?? 1),
+        title: finding.title,
+        description: finding.mitigation,
+        relatedFindingIds: [finding.id, ...finding.relatedFindingIds],
+        citations: citationSummary.citations,
+        omittedFileCount: citationSummary.omittedFileCount,
+        rationale: `Impact ${finding.impact ?? 0}, likelihood ${finding.likelihood ?? 0}, risk ${finding.riskScore ?? 0}. ${finding.severityRationale}`,
+      };
+    });
 }
 
 function scoreFinding(finding: Finding): Finding {

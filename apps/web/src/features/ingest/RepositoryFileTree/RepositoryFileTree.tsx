@@ -28,6 +28,7 @@ export function RepositoryFileTree({
     <div
       className="rounded-2xl border border-[var(--md-outline)]/40 bg-[var(--md-surface-container-high)]/40"
       data-testid="repository-file-tree"
+      id="repository-file-tree"
     >
       <div className="border-b border-[var(--md-outline)]/30 px-4 py-3">
         <p className="text-sm font-semibold text-[var(--md-on-surface)]">Indexed repository tree</p>

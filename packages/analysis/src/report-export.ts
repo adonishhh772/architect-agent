@@ -1,4 +1,5 @@
-import { sanitizeMarkdownText, type AnalysisReport } from "@sentinel/schema";
+import { sanitizeMarkdownText, type AnalysisReport, type FileReference } from "@sentinel/schema";
+import { citationOmissionNote } from "./finding-citations.js";
 
 export function reportToMarkdown(report: AnalysisReport): string {
   const lines: string[] = [];
@@ -43,8 +44,30 @@ export function reportToMarkdown(report: AnalysisReport): string {
     lines.push(sanitizeMarkdownText(report.pullRequestReview.commentBody));
     lines.push("");
   }
+  if (report.recommendations.length > 0) {
+    lines.push("## Recommendations");
+    for (const recommendation of report.recommendations) {
+      lines.push(`### ${recommendation.priority}. ${sanitizeMarkdownText(recommendation.title)}`);
+      lines.push(sanitizeMarkdownText(recommendation.description));
+      if (recommendation.citations.length > 0) {
+        lines.push("");
+        lines.push("**Cited files:**");
+        for (const citation of recommendation.citations) {
+          lines.push(`- \`${formatCitation(citation)}\``);
+        }
+        const omissionNote = citationOmissionNote(recommendation.omittedFileCount ?? 0);
+        if (omissionNote) {
+          lines.push(`- ${omissionNote}`);
+        }
+      }
+      lines.push("");
+    }
+  }
   lines.push("## Findings");
   for (const finding of report.findings) {
+    if (finding.duplicateOfStableKey) {
+      continue;
+    }
     lines.push(`### ${sanitizeMarkdownText(finding.title)} (${finding.id})`);
     lines.push(`- Category: ${finding.category}`);
     lines.push(`- Status: ${finding.status}`);
@@ -76,13 +99,9 @@ export function reportToMarkdown(report: AnalysisReport): string {
     lines.push(`**Mitigation:** ${sanitizeMarkdownText(finding.mitigation)}`);
     if (finding.references.length > 0) {
       lines.push("");
-      lines.push("**Evidence references:**");
+      lines.push("**Cited files:**");
       for (const ref of finding.references) {
-        const range =
-          ref.startLine !== undefined
-            ? `:${ref.startLine}${ref.endLine !== undefined ? `-${ref.endLine}` : ""}`
-            : "";
-        lines.push(`- \`${ref.path}${range}\``);
+        lines.push(`- \`${formatCitation(ref)}\``);
       }
     }
     lines.push("");
@@ -98,6 +117,16 @@ export function reportToMarkdown(report: AnalysisReport): string {
     }
   }
   return lines.join("\n");
+}
+
+function formatCitation(reference: FileReference): string {
+  if (reference.startLine === undefined) {
+    return reference.path;
+  }
+  if (reference.endLine === undefined || reference.endLine === reference.startLine) {
+    return `${reference.path}:${reference.startLine}`;
+  }
+  return `${reference.path}:${reference.startLine}-${reference.endLine}`;
 }
 
 export function reportToPrintableHtml(report: AnalysisReport): string {

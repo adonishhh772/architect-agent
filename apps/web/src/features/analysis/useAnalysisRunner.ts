@@ -36,6 +36,7 @@ export function useAnalysisRunner(): {
     providerSettings: ProviderSettings;
     apiKey?: string;
     enableAi: boolean;
+    advisoryLookupConsent: boolean;
     exclusions: string[];
     maxRequests: number;
     maxTokens: number;
@@ -103,6 +104,7 @@ export function useAnalysisRunner(): {
           },
           githubToken: input.githubToken,
           priorMemory: input.priorMemory,
+          advisoryLookupConsent: input.advisoryLookupConsent,
         });
         return { report, agentWork: agentWorkRef.current };
       } catch (caught) {

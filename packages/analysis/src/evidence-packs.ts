@@ -13,8 +13,6 @@ export const AUDIT_LIMITS = {
   PACK_FILES: 8,
   READER_BATCH_FILES: 12,
   READER_BATCH_CHARS: 28_000,
-  READER_ROUND_CAP: 12,
-  SPECIALIST_REQUEST_RESERVE: 7,
   MANIFEST_PATHS: 800,
   GRAPH_NODES_IN_PROMPT: 80,
   GRAPH_EDGES_IN_PROMPT: 60,
@@ -110,22 +108,43 @@ export interface ToolObservation {
   text: string;
 }
 
+export interface FileWindowRead {
+  observations: ToolObservation[];
+  finishedPaths: string[];
+  partialPaths: string[];
+  resumeLines: Record<string, number>;
+}
+
 export function readCoveragePreviews(
   context: InvestigationToolContext,
   paths: string[],
 ): { observations: ToolObservation[]; partialPaths: string[] } {
+  const windows = readFileWindows(context, paths, {});
+  return { observations: windows.observations, partialPaths: windows.partialPaths };
+}
+
+export function readFileWindows(
+  context: InvestigationToolContext,
+  paths: string[],
+  resumeLines: Readonly<Record<string, number>>,
+): FileWindowRead {
   const observations: ToolObservation[] = [];
+  const finishedPaths: string[] = [];
   const partialPaths: string[] = [];
+  const nextResume: Record<string, number> = {};
   for (const path of paths) {
     const content = context.contents.get(path) ?? "";
     const lineCount = content.length === 0 ? 0 : content.split("\n").length;
-    const endLine = Math.min(Math.max(lineCount, 1), AUDIT_LIMITS.FULL_READ_LINES);
-    if (lineCount > AUDIT_LIMITS.FULL_READ_LINES) {
-      partialPaths.push(path);
+    const startLine = resumeLines[path] ?? 1;
+    if (lineCount === 0 || startLine > lineCount) {
+      finishedPaths.push(path);
+      nextResume[path] = 0;
+      continue;
     }
+    const endLine = Math.min(lineCount, startLine + AUDIT_LIMITS.FULL_READ_LINES - 1);
     const result = executeInvestigationTool(
       ToolName.READ_FILE_RANGE,
-      { path, startLine: 1, endLine },
+      { path, startLine, endLine },
       context,
     );
     observations.push({
@@ -134,8 +153,45 @@ export function readCoveragePreviews(
         JSON.stringify(result).slice(0, AUDIT_LIMITS.TOOL_RESULT_CHARS),
       ),
     });
+    if (endLine >= lineCount) {
+      finishedPaths.push(path);
+      nextResume[path] = 0;
+    } else {
+      partialPaths.push(path);
+      nextResume[path] = endLine + 1;
+    }
   }
-  return { observations, partialPaths };
+  return { observations, finishedPaths, partialPaths, resumeLines: nextResume };
+}
+
+const SPECIALIST_PACK_AGENTS = new Set<string>([
+  AUDIT_AGENT.STRIDE,
+  AUDIT_AGENT.OWASP,
+  AUDIT_AGENT.ATLAS,
+  AUDIT_AGENT.DATA,
+  AUDIT_AGENT.INFRASTRUCTURE,
+]);
+
+const UNOPENED_PREVIEW_LIMIT = 8;
+const TRACE_DETAIL_LIMIT = 1900;
+
+export function describeUnopenedFiles(indexedPaths: string[], openedPaths: string[]): string {
+  const opened = new Set(openedPaths);
+  const unopened: string[] = [];
+  for (const path of indexedPaths) {
+    if (!opened.has(path)) {
+      unopened.push(path);
+    }
+  }
+  const preview = unopened.slice(0, UNOPENED_PREVIEW_LIMIT);
+  const moreCount = unopened.length - preview.length;
+  const previewText = preview.length > 0 ? ` Unopened: ${preview.join(", ")}${moreCount > 0 ? `, and ${moreCount} more` : ""}.` : "";
+  const detail = `Opened ${openedPaths.length} files. Did not open ${unopened.length} indexed files.${previewText}`;
+  return detail.length <= TRACE_DETAIL_LIMIT ? detail : `${detail.slice(0, TRACE_DETAIL_LIMIT - 3)}...`;
+}
+
+export function isSpecialistPackAgent(agentId: string): boolean {
+  return SPECIALIST_PACK_AGENTS.has(agentId);
 }
 
 export function readPathPreviews(

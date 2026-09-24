@@ -15,6 +15,7 @@ import {
   type AuditMemory,
   type Finding,
 } from "@sentinel/schema";
+import { sanitizeArchitectureMermaid } from "@sentinel/graph";
 import type { PullRequestSnapshot } from "@sentinel/ingestion";
 import { z } from "zod";
 import { formatMemoryForPrompt } from "./audit-memory.js";
@@ -22,7 +23,10 @@ import { buildSpecialistSystemPrompt, buildSpecialistUserPrompt } from "./audit-
 import { selectUnreadBatch } from "./coverage-queue.js";
 import {
   AUDIT_LIMITS,
+  describeUnopenedFiles,
+  isSpecialistPackAgent,
   readCoveragePreviews,
+  readFileWindows,
   readEntryNeighborhood,
   readPathPreviews,
   selectPathsForAgent,
@@ -60,8 +64,7 @@ export const AUDIT_MESSAGE = {
   INVALID_MODEL_JSON: "Model response was not valid audit JSON.",
   COMPLETED: "Agent finished against its evidence pack.",
   NO_EVIDENCE: "The indexed snapshot has no files for this agent.",
-  READER_RESERVE: "Stopped the full-repository reader so the threat-model specialists and pull-request review still have request budget.",
-  READER_COMPLETE: "Read the next unread batch. Remaining files stay in memory until a later round or run.",
+  READER_COMPLETE: "Read the next unread batch. Remaining indexed files are read in the next round.",
   READER_DONE: "Every indexed file was read or was already in memory.",
   NO_PULL_REQUESTS: "No open pull requests were available. ZIP uploads have no pull request API.",
 } as const;
@@ -77,6 +80,7 @@ const DEFAULT_RISK_BY_AGENT: Record<string, Array<(typeof RISK_DOMAIN_LIST)[numb
 
 const SpecialistResponseSchema = z.object({
   architectureBrief: z.string().max(12000).optional(),
+  architectureMermaid: z.string().max(12000).optional(),
   threatModelOverview: z.string().max(8000).optional(),
   toolCalls: z
     .array(
@@ -151,6 +155,8 @@ export interface AuditSpecialistOptions {
   manifest: string;
   priorFindingKeys: string[];
   alreadyRead?: ReadonlySet<string>;
+  readResume?: Readonly<Record<string, number>>;
+  sharedEvidence?: readonly string[];
   pullRequests?: PullRequestSnapshot[];
   priorMemory?: AuditMemory;
   repositoryKey?: string;
@@ -162,11 +168,14 @@ export interface AuditSpecialistOptions {
 
 export interface AuditSpecialistResult {
   architectureBrief?: string;
+  architectureMermaid?: string;
   overview?: string;
   findings: Finding[];
   attackPaths: AttackPath[];
   pathsRead: string[];
   pathsPartial: string[];
+  readResume?: Record<string, number>;
+  evidenceNotes?: string[];
   continueReading: boolean;
   trace: AgentTraceEntry;
 }
@@ -184,8 +193,18 @@ async function executeSpecialist(options: AuditSpecialistOptions): Promise<Audit
   }
 
   const paths = [...options.context.contents.keys()];
+  if (isSpecialistPackAgent(options.agentId) || options.agentId === AUDIT_AGENT.CARTOGRAPHER) {
+    return reviewSharedEvidence(options, options.sharedEvidence ?? []);
+  }
   const alreadyRead = options.alreadyRead ?? new Set<string>();
-  const selection = selectEvidenceForAgent(options.agentId, paths, alreadyRead, options.context, options.pullRequests);
+  const selection = selectEvidenceForAgent(
+    options.agentId,
+    paths,
+    alreadyRead,
+    options.context,
+    options.pullRequests,
+    options.readResume ?? {},
+  );
   if (selection.skip) {
     return finishSpecialist(options, selection.status, selection.detail, 0);
   }
@@ -208,6 +227,7 @@ async function executeSpecialist(options: AuditSpecialistOptions): Promise<Audit
   const collectedFindings: Finding[] = [];
   const collectedPaths: AttackPath[] = [];
   let architectureBrief: string | undefined;
+  let architectureMermaid: string | undefined;
   let overview: string | undefined;
   let toolCallCount = observations.length;
   let followUpObservations: ToolObservation[] = [];
@@ -260,6 +280,9 @@ async function executeSpecialist(options: AuditSpecialistOptions): Promise<Audit
     }
 
     architectureBrief = parsed.data.architectureBrief ?? architectureBrief;
+    if (options.agentId === AUDIT_AGENT.CARTOGRAPHER && parsed.data.architectureMermaid) {
+      architectureMermaid = sanitizeArchitectureMermaid(parsed.data.architectureMermaid) ?? architectureMermaid;
+    }
     overview = parsed.data.threatModelOverview ?? overview;
     if (parsed.data.threatModelOverview) {
       reportAgentStep(
@@ -293,7 +316,7 @@ async function executeSpecialist(options: AuditSpecialistOptions): Promise<Audit
     toolCallCount += followUpObservations.length;
   }
 
-  const detail = options.agentId === AUDIT_AGENT.CODE_READER ? AUDIT_MESSAGE.READER_COMPLETE : AUDIT_MESSAGE.COMPLETED;
+  const detail = specialistDetail(options.agentId, paths, selection.finishedPaths ?? selected);
   reportAgentStep(
     options,
     AGENT_ACTIVITY_STATUS.COMPLETED,
@@ -302,11 +325,14 @@ async function executeSpecialist(options: AuditSpecialistOptions): Promise<Audit
   );
   return {
     architectureBrief,
+    architectureMermaid,
     overview,
     findings: collectedFindings,
     attackPaths: collectedPaths,
-    pathsRead: selected,
+    pathsRead: selection.finishedPaths ?? selected,
     pathsPartial: partialPaths,
+    readResume: selection.readResume,
+    evidenceNotes: options.agentId === AUDIT_AGENT.CODE_READER ? selection.observations.map((item) => item.text) : undefined,
     continueReading: false,
     trace: {
       agentId: options.agentId,
@@ -316,6 +342,143 @@ async function executeSpecialist(options: AuditSpecialistOptions): Promise<Audit
     },
   };
 }
+
+async function reviewSharedEvidence(options: AuditSpecialistOptions, sharedEvidence: readonly string[]): Promise<AuditSpecialistResult> {
+  const collectedFindings: Finding[] = [];
+  const collectedPaths: AttackPath[] = [];
+  let overview: string | undefined;
+  let architectureBrief: string | undefined;
+  let architectureMermaid: string | undefined;
+  let toolCallCount = 0;
+  const batches = chunkNotes(sharedEvidence, AUDIT_LIMITS.READER_BATCH_FILES);
+
+  for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
+    if (options.signal?.aborted) {
+      throw new DOMException("Aborted", "AbortError");
+    }
+    const batch = batches[batchIndex] ?? [];
+    toolCallCount += batch.length;
+    reportAgentStep(
+      options,
+      AGENT_ACTIVITY_STATUS.RUNNING,
+      AGENT_STEP_KIND.ACTION,
+      describeEvidenceRead(options.agentId, batch.map((_note, index) => `shared-window-${batchIndex + 1}-${index + 1}`)),
+    );
+    const completion = await options.provider.complete(options.apiKey, {
+      messages: [
+        { role: "system", content: buildSpecialistSystemPrompt(options.agentId) },
+        {
+          role: "user",
+          content: buildSpecialistUserPrompt({
+            agentId: options.agentId,
+            architectureBrief: options.architectureBrief,
+            graphSummary: options.graphSummary,
+            manifest: options.manifest,
+            observations: batch.length > 0 ? [...batch] : ["The code reader stored no file text."],
+            priorFindingKeys: [...options.priorFindingKeys, ...collectedFindings.map((finding) => finding.stableKey)],
+            memoryText: formatMemoryForPrompt(options.priorMemory),
+          }),
+        },
+      ],
+      jsonSchema: {},
+      maxOutputTokens: 8192,
+    });
+    options.onUsage?.(completion.usage);
+    const parsed = parseJsonWithRepair(completion.text, SpecialistResponseSchema);
+    if (!parsed.success) {
+      return finishSpecialist(options, AGENT_RUN_STATUS.FAILED, AUDIT_MESSAGE.INVALID_MODEL_JSON, toolCallCount, []);
+    }
+    architectureBrief = parsed.data.architectureBrief ?? architectureBrief;
+    if (options.agentId === AUDIT_AGENT.CARTOGRAPHER && parsed.data.architectureMermaid) {
+      architectureMermaid = sanitizeArchitectureMermaid(parsed.data.architectureMermaid) ?? architectureMermaid;
+    }
+    const requestedTools = parsed.data.toolCalls ?? [];
+    let resolved = parsed.data;
+    if (requestedTools.length > 0 && (parsed.data.findings ?? []).length === 0) {
+      for (const call of requestedTools.slice(0, AUDIT_LIMITS.TOOL_CALLS_PER_ROUND)) {
+        reportAgentStep(
+          options,
+          AGENT_ACTIVITY_STATUS.RUNNING,
+          AGENT_STEP_KIND.ACTION,
+          describeToolActivity(call.tool, call.args),
+        );
+      }
+      const followUp = executeRequestedTools(requestedTools, options.context);
+      toolCallCount += followUp.length;
+      const followUpCompletion = await options.provider.complete(options.apiKey, {
+        messages: [
+          { role: "system", content: buildSpecialistSystemPrompt(options.agentId) },
+          {
+            role: "user",
+            content: buildSpecialistUserPrompt({
+              agentId: options.agentId,
+              architectureBrief: architectureBrief ?? options.architectureBrief,
+              graphSummary: options.graphSummary,
+              manifest: options.manifest,
+              observations: [...batch, ...followUp.map((item) => item.text)],
+              priorFindingKeys: [...options.priorFindingKeys, ...collectedFindings.map((finding) => finding.stableKey)],
+              memoryText: formatMemoryForPrompt(options.priorMemory),
+            }),
+          },
+        ],
+        jsonSchema: {},
+        maxOutputTokens: 8192,
+      });
+      options.onUsage?.(followUpCompletion.usage);
+      const followUpParsed = parseJsonWithRepair(followUpCompletion.text, SpecialistResponseSchema);
+      if (!followUpParsed.success) {
+        return finishSpecialist(options, AGENT_RUN_STATUS.FAILED, AUDIT_MESSAGE.INVALID_MODEL_JSON, toolCallCount, []);
+      }
+      resolved = followUpParsed.data;
+    }
+    architectureBrief = resolved.architectureBrief ?? architectureBrief;
+    if (options.agentId === AUDIT_AGENT.CARTOGRAPHER && resolved.architectureMermaid) {
+      architectureMermaid = sanitizeArchitectureMermaid(resolved.architectureMermaid) ?? architectureMermaid;
+    }
+    overview = resolved.threatModelOverview ?? overview;
+    if (resolved.threatModelOverview) {
+      reportAgentStep(
+        options,
+        AGENT_ACTIVITY_STATUS.RUNNING,
+        AGENT_STEP_KIND.THINKING,
+        describeThinking(resolved.threatModelOverview),
+      );
+    }
+    collectedFindings.push(...mapDraftFindings(resolved, options));
+    collectedPaths.push(...mapDraftAttackPaths(resolved, options.agentId));
+  }
+
+  const detail = `Reviewed ${sharedEvidence.length} file windows shared by the code reader.`;
+  reportAgentStep(options, AGENT_ACTIVITY_STATUS.COMPLETED, AGENT_STEP_KIND.ACTION, describePassOutcome(collectedFindings.length, detail));
+  return {
+    architectureBrief,
+    architectureMermaid,
+    overview,
+    findings: collectedFindings,
+    attackPaths: collectedPaths,
+    pathsRead: [],
+    pathsPartial: [],
+    continueReading: false,
+    trace: {
+      agentId: options.agentId,
+      status: AGENT_RUN_STATUS.COMPLETED,
+      detail,
+      toolCallCount,
+    },
+  };
+}
+
+function chunkNotes(notes: readonly string[], batchSize: number): string[][] {
+  if (notes.length === 0) {
+    return [[]];
+  }
+  const batches: string[][] = [];
+  for (let index = 0; index < notes.length; index += batchSize) {
+    batches.push(notes.slice(index, index + batchSize));
+  }
+  return batches;
+}
+
 
 function reportAgentStep(
   options: AuditSpecialistOptions,
@@ -369,6 +532,8 @@ interface EvidenceSelection {
   paths: string[];
   observations: ToolObservation[];
   partialPaths: string[];
+  finishedPaths?: string[];
+  readResume?: Record<string, number>;
   skip: boolean;
   status: AgentTraceEntry["status"];
   detail: string;
@@ -380,6 +545,7 @@ function selectEvidenceForAgent(
   alreadyRead: ReadonlySet<string>,
   context: InvestigationToolContext,
   pullRequests: PullRequestSnapshot[] | undefined,
+  readResume: Readonly<Record<string, number>>,
 ): EvidenceSelection {
   if (agentId === AUDIT_AGENT.PULL_REQUEST) {
     if (!pullRequests || pullRequests.length === 0) {
@@ -405,13 +571,23 @@ function selectEvidenceForAgent(
   }
 
   if (agentId === AUDIT_AGENT.CODE_READER) {
-    if (listHasUnread(paths, alreadyRead)) {
-      const selected = selectUnreadBatch(paths, alreadyRead, context.contents);
-      const coverage = readCoveragePreviews(context, selected);
+    const priorityPaths = pendingResumePaths(readResume);
+    if (listHasUnread(paths, alreadyRead) || priorityPaths.size > 0) {
+      const selected = selectUnreadBatch(
+        paths,
+        alreadyRead,
+        context.contents,
+        AUDIT_LIMITS.READER_BATCH_FILES,
+        AUDIT_LIMITS.READER_BATCH_CHARS,
+        priorityPaths,
+      );
+      const coverage = readFileWindows(context, selected, readResume);
       return {
         paths: selected,
         observations: coverage.observations,
         partialPaths: coverage.partialPaths,
+        finishedPaths: coverage.finishedPaths,
+        readResume: coverage.resumeLines,
         skip: selected.length === 0,
         status: AGENT_RUN_STATUS.COMPLETED,
         detail: selected.length === 0 ? AUDIT_MESSAGE.READER_DONE : AUDIT_MESSAGE.READER_COMPLETE,
@@ -438,6 +614,26 @@ function selectEvidenceForAgent(
     status: AGENT_RUN_STATUS.COMPLETED,
     detail: AUDIT_MESSAGE.COMPLETED,
   };
+}
+
+function specialistDetail(agentId: string, indexedPaths: string[], openedPaths: string[]): string {
+  if (agentId === AUDIT_AGENT.CODE_READER) {
+    return AUDIT_MESSAGE.READER_COMPLETE;
+  }
+  if (isSpecialistPackAgent(agentId)) {
+    return describeUnopenedFiles(indexedPaths, openedPaths);
+  }
+  return AUDIT_MESSAGE.COMPLETED;
+}
+
+function pendingResumePaths(readResume: Readonly<Record<string, number>>): Set<string> {
+  const pending = new Set<string>();
+  for (const [path, nextLine] of Object.entries(readResume)) {
+    if (nextLine > 0) {
+      pending.add(path);
+    }
+  }
+  return pending;
 }
 
 function listHasUnread(paths: string[], alreadyRead: ReadonlySet<string>): boolean {

@@ -147,6 +147,7 @@ function minimalReport(findings: Finding[]): AnalysisReport {
       entries: [],
     },
     userCorrections: [],
+    sbom: [],
     recommendations: [],
     budget: { tokensUsed: 0, requestsUsed: 0, partialCompletion: false },
     agentTrace: [],

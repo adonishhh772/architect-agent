@@ -60,24 +60,17 @@ function sarifResult(finding: Finding): {
     };
   }>;
 } {
-  const reference = finding.references[0];
-  const location = reference
-    ? {
-        physicalLocation: {
-          artifactLocation: { uri: reference.path },
-          region: reference.startLine ? { startLine: reference.startLine } : undefined,
-        },
-      }
-    : {
-        physicalLocation: {
-          artifactLocation: { uri: finding.affectedAssetSummary },
-        },
-      };
+  const references = finding.references.length > 0 ? finding.references : [{ path: finding.affectedAssetSummary }];
   return {
     ruleId: finding.stableKey,
     level: sarifLevel(finding.riskScore ?? 0),
     message: { text: `${finding.title}. ${finding.mitigation}` },
-    locations: [location],
+    locations: references.map((reference) => ({
+      physicalLocation: {
+        artifactLocation: { uri: reference.path },
+        region: reference.startLine ? { startLine: reference.startLine } : undefined,
+      },
+    })),
   };
 }
 

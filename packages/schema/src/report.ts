@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { FileReferenceSchema } from "./evidence.js";
 import { AGENT_RUN_STATUS, ANALYSIS_MODE, REPORT_SCHEMA_VERSION, SOURCE_LANGUAGE_LIST } from "./constants.js";
 import { ArchitectureGraphSchema } from "./graph.js";
 import { AttackPathSchema, FindingSchema } from "./findings.js";
@@ -87,6 +88,7 @@ export const AnalysisReportSchema = z.object({
   repository: RepositoryMetadataSchema,
   executiveSummary: z.string().max(16000),
   architectureOverview: z.string().max(16000).optional(),
+  architectureMermaid: z.string().max(16000).optional(),
   architectureProfile: ArchitectureProfileSchema.optional(),
   agentTrace: z.array(AgentTraceEntrySchema).default([]),
   disclaimer: z.string().max(4000),
@@ -95,6 +97,20 @@ export const AnalysisReportSchema = z.object({
   attackPaths: z.array(AttackPathSchema).default([]),
   coverage: CoverageReportSchema,
   userCorrections: z.array(UserCorrectionSchema).default([]),
+  sbom: z
+    .array(
+      z.object({
+        ecosystem: z.string().min(1).max(40),
+        name: z.string().min(1).max(300),
+        version: z.string().min(1).max(80),
+        manifestPath: z.string().min(1).max(500),
+        scope: z.enum(["direct", "transitive"]).default("transitive"),
+        purl: z.string().max(500).default(""),
+        referencedInSource: z.boolean().default(false),
+      }),
+    )
+    .max(5000)
+    .default([]),
   recommendations: z.array(
     z.object({
       id: z.string().min(1),
@@ -102,6 +118,8 @@ export const AnalysisReportSchema = z.object({
       title: z.string().max(500),
       description: z.string().max(8000),
       relatedFindingIds: z.array(z.string()).default([]),
+      citations: z.array(FileReferenceSchema).max(5000).default([]),
+      omittedFileCount: z.number().int().nonnegative().default(0),
       rationale: z.string().max(4000),
     }),
   ),

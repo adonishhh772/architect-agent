@@ -1,4 +1,4 @@
-import { buildArchitectureProfile, extractArchitecture, extractCallFlows } from "@sentinel/graph";
+import { buildArchitectureProfile, extractArchitecture, extractCallFlows, graphToMermaid } from "@sentinel/graph";
 import type { AiProviderAdapter } from "@sentinel/providers";
 import {
   AGENT_RUN_STATUS,
@@ -20,7 +20,8 @@ import { runDeepInvestigationAgent } from "./deep-investigation-agent.js";
 import { applyStoredDispositions } from "./disposition.js";
 import { generateDeterministicFindings } from "./deterministic-scanners.js";
 import { runExecutableSkills } from "./language-detectors.js";
-import { queryOsvAdvisories } from "./osv-advisory.js";
+import { describeAgentFileCoverage } from "./agent-file-coverage.js";
+import { queryOsvAdvisories, listPackageCoordinates } from "./osv-advisory.js";
 import { buildPullRequestReview, reconcileFindingLifecycle } from "./pull-request-gate.js";
 import { buildRankedRecommendations, rankFindings } from "./risk-ranking.js";
 import { generateStaticFindings } from "./static-findings.js";
@@ -49,6 +50,7 @@ export interface OrchestratorOptions {
   };
   githubToken?: string;
   priorMemory?: AuditMemory;
+  advisoryLookupConsent?: boolean;
 }
 
 export async function runAnalysisOrchestrator(
@@ -99,10 +101,18 @@ export async function runAnalysisOrchestrator(
     graph,
     commitSha: options.store.index.commitSha,
   });
-  const advisoryLookup = await queryOsvAdvisories(options.store.contents, graph, {
-    signal: options.signal,
-    commitSha: options.store.index.commitSha,
-  });
+  const advisoryLookup =
+    options.advisoryLookupConsent === false
+      ? {
+          findings: [] as AnalysisReport["findings"],
+          status: "skipped" as const,
+          detail:
+            "Advisory lookup was not sent. Confirm public advisory disclosure before package names leave this browser.",
+        }
+      : await queryOsvAdvisories(options.store.contents, graph, {
+          signal: options.signal,
+          commitSha: options.store.index.commitSha,
+        });
   const observedFlows = extractCallFlows(options.store.contents, options.store.index.commitSha).flows;
 
   emit("investigate", "Running multi-pass STRIDE deep investigation", 5, 10);
@@ -111,6 +121,7 @@ export async function runAnalysisOrchestrator(
     attackPaths: [] as AnalysisReport["attackPaths"],
     threatModelOverview: undefined as string | undefined,
     architectureBrief: undefined as string | undefined,
+    architectureMermaid: undefined as string | undefined,
     agentTrace: [] as AgentTraceEntry[],
     filesSampled: 0,
     totalIndexedFiles: options.store.contents.size,
@@ -194,9 +205,10 @@ export async function runAnalysisOrchestrator(
       aiInvestigation.agentTrace,
     ),
     ...readingCoverage(aiInvestigation.memory),
+    agentFileCoverageEntry(aiInvestigation.memory, options.store.contents.size),
     {
       area: "dependency_advisories",
-      status: advisoryLookup.status === "complete" ? "complete" : advisoryLookup.status === "failed" ? "partial" : "skipped",
+      status: advisoryCoverageStatus(advisoryLookup.status),
       detail: advisoryLookup.detail,
     },
     {
@@ -223,9 +235,17 @@ export async function runAnalysisOrchestrator(
         filesSampled: aiInvestigation.filesSampled,
         totalIndexedFiles: aiInvestigation.totalIndexedFiles,
         aiPassesCompleted: aiInvestigation.aiPassesCompleted,
+        unreadDetail: describeAgentFileCoverage(
+          aiInvestigation.memory?.filesRead.length ?? aiInvestigation.filesSampled,
+          aiInvestigation.memory
+            ? aiInvestigation.memory.filesRead.length + aiInvestigation.memory.filesUnread.length
+            : options.store.contents.size,
+          aiInvestigation.memory?.filesPartial.length ?? 0,
+        ).detail,
       },
     ),
     architectureOverview: aiInvestigation.architectureBrief ?? architectureProfile.purpose,
+    architectureMermaid: aiInvestigation.architectureMermaid ?? graphToMermaid(graph),
     architectureProfile,
     agentTrace: aiInvestigation.agentTrace,
     memory: attachLifecycleMemory(
@@ -247,6 +267,15 @@ export async function runAnalysisOrchestrator(
     attackPaths: aiAttackPaths,
     coverage,
     userCorrections: [],
+    sbom: listPackageCoordinates(options.store.contents).map((coordinate) => ({
+      ecosystem: coordinate.ecosystem,
+      name: coordinate.name,
+      version: coordinate.version,
+      manifestPath: coordinate.manifestPath,
+      scope: coordinate.scope,
+      purl: coordinate.purl,
+      referencedInSource: coordinate.referencedInSource,
+    })),
     recommendations,
     budget: {
       maxTokens: options.budget?.maxTokens,
@@ -353,6 +382,16 @@ function attachLifecycleMemory(
   };
 }
 
+function advisoryCoverageStatus(status: "complete" | "partial" | "skipped" | "failed"): "complete" | "partial" | "skipped" {
+  if (status === "complete") {
+    return "complete";
+  }
+  if (status === "skipped") {
+    return "skipped";
+  }
+  return "partial";
+}
+
 function buildExecutiveSummary(
   findings: AnalysisReport["findings"],
   nodeCount: number,
@@ -362,6 +401,7 @@ function buildExecutiveSummary(
     filesSampled: number;
     totalIndexedFiles: number;
     aiPassesCompleted: number;
+    unreadDetail: string;
   },
 ): string {
   const securityCount = findings.filter((finding) => finding.category === "security").length;
@@ -373,10 +413,13 @@ function buildExecutiveSummary(
   const partialNote = partial
     ? " Analysis completed partially due to budget, provider, or cancellation limits."
     : "";
-  const deepNote =
-    deepCoverage && deepCoverage.aiPassesCompleted > 0
-      ? ` Multi-agent review read ${deepCoverage.filesSampled} prioritized files across ${deepCoverage.totalIndexedFiles} indexed paths (${deepCoverage.aiPassesCompleted} specialist agents completed).`
-      : "";
+  const deepNote = deepCoverage
+    ? ` ${deepCoverage.unreadDetail}${
+        deepCoverage.aiPassesCompleted > 0
+          ? ` ${deepCoverage.aiPassesCompleted} specialist agents completed.`
+          : ""
+      }`
+    : "";
   const findingLabel = findings.length === 1 ? "finding" : "findings";
   const metrics = `Mapped ${nodeCount} architecture components. ${findings.length} ${findingLabel} (${securityCount} security, ${architectureCount} architecture, ${aiCount} AI-security, ${strideTagged} STRIDE-tagged, ${owaspTagged} OWASP-tagged, ${atlasTagged} ATLAS-tagged).${deepNote}${partialNote}`;
   if (threatModelOverview?.trim()) {
@@ -417,6 +460,22 @@ function buildAgentCoverageEntries(
   });
 }
 
+function agentFileCoverageEntry(memory: AuditMemory | undefined, indexedFileCount: number): CoverageEntry {
+  const filesRead = memory?.filesRead.length ?? 0;
+  const filesIndexed = memory ? memory.filesRead.length + memory.filesUnread.length : indexedFileCount;
+  const coverage = describeAgentFileCoverage(
+    filesRead,
+    filesIndexed > 0 ? filesIndexed : indexedFileCount,
+    memory?.filesPartial.length ?? 0,
+  );
+  return {
+    area: "agent_file_reading",
+    status: coverage.status,
+    detail: coverage.detail,
+    fileCount: coverage.unreadCount,
+  };
+}
+
 function readingCoverage(memory: AuditMemory | undefined): CoverageEntry[] {
   if (!memory) {
     return [];
@@ -429,7 +488,7 @@ function readingCoverage(memory: AuditMemory | undefined): CoverageEntry[] {
     {
       area: "repository_reading",
       status: memory.filesUnread.length === 0 ? "complete" : "partial",
-      detail: `Read ${memory.filesRead.length} of ${indexed} indexed files. ${memory.filesPartial.length} files were longer than the full-read window. ${memory.pullRequestsReviewed.length} open pull requests reviewed.`,
+      detail: `Read ${memory.filesRead.length} of ${indexed} indexed files. ${memory.filesPartial.length} files were only partly read. ${memory.pullRequestsReviewed.length} open pull requests reviewed.`,
       fileCount: memory.filesRead.length,
     },
   ];

@@ -1,4 +1,5 @@
 import { ProviderSettingsSchema, type ProviderSettings } from "@sentinel/schema";
+import { replaceRetiredOpenAiModel } from "./providerDefaults";
 
 const PROVIDER_SETTINGS_STORAGE_KEY = "sentinel-provider-settings";
 const PROVIDER_SETTINGS_USER_SAVED_KEY = "sentinel-provider-settings-user-saved";
@@ -22,7 +23,11 @@ export function readStoredProviderSettings(): ProviderSettings | null {
   }
   try {
     const parsed: unknown = JSON.parse(raw);
-    return ProviderSettingsSchema.parse(parsed);
+    const settings = replaceRetiredOpenAiModel(ProviderSettingsSchema.parse(parsed));
+    if (settings.modelId !== (parsed as { modelId?: string }).modelId) {
+      localStorage.setItem(PROVIDER_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+    }
+    return settings;
   } catch {
     localStorage.removeItem(PROVIDER_SETTINGS_STORAGE_KEY);
     localStorage.removeItem(PROVIDER_SETTINGS_USER_SAVED_KEY);

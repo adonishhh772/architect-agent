@@ -10,7 +10,8 @@ describe("polyglot architecture", () => {
       ["package.json", JSON.stringify({ description: "Billing API for invoices.", dependencies: {} })],
       ["pyproject.toml", 'description = "Python worker for invoices."\n'],
       ["go.mod", "module github.com/acme/billing\n\nrequire github.com/gin-gonic/gin v1.9.0\n"],
-      ["api.py", '@app.get("/invoices")\ndef list_invoices():\n    SessionLocal()\n'],
+      ["api.py", 'import billing_store\n@app.get("/invoices")\ndef list_invoices():\n    SessionLocal()\n'],
+      ["billing_store.py", "def load():\n    return []\n"],
       ["main.go", 'r.GET("/health", health)\n'],
       ["requirements.txt", "flask==3.0.0\n"],
     ]);
@@ -24,6 +25,7 @@ describe("polyglot architecture", () => {
     expect(graph.nodes.some((node) => node.kind === GRAPH_NODE_KIND.DATA_STORE)).toBe(true);
     expect(graph.nodes.some((node) => node.label === "flask")).toBe(true);
     expect(graph.nodes.some((node) => node.label.includes("gin"))).toBe(true);
+    expect(graph.edges.some((edge) => edge.kind === "depends_on" && edge.source.includes("api.py"))).toBe(true);
   });
 
   it("traces request input to a sink in Python and Go", () => {

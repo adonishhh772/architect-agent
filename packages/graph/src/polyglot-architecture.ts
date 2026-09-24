@@ -64,6 +64,7 @@ export function extractArchitecture(input: ExtractionInput): ArchitectureGraph {
     collectStores(path, content, moduleNodeId, input.commitSha, addNode, edges);
     collectAi(path, content, moduleNodeId, input.commitSha, addNode, edges);
     collectHosts(path, content, moduleNodeId, input.commitSha, addNode, edges);
+    collectImports(path, content, moduleNodeId, input.commitSha, input.files, addNode, edges);
   }
 
   collectManifestDependencies(input, addNode, edges);
@@ -193,6 +194,75 @@ function collectHosts(
     });
     match = HTTP_HOST.exec(content);
   }
+}
+
+const PYTHON_IMPORT = /^(?:from\s+([A-Za-z_][\w.]*)\s+import|import\s+([A-Za-z_][\w.]*))/gm;
+const GO_IMPORT = /"((?:[A-Za-z0-9_.-]+\/)+[A-Za-z0-9_.-]+)"/g;
+
+function collectImports(
+  path: string,
+  content: string,
+  moduleNodeId: string,
+  commitSha: string | undefined,
+  files: Map<string, string>,
+  addNode: (node: GraphNode) => void,
+  edges: GraphEdge[],
+): void {
+  const pattern = isPythonPath(path) ? PYTHON_IMPORT : GO_IMPORT;
+  pattern.lastIndex = 0;
+  let match = pattern.exec(content);
+  while (match) {
+    const importedName = match[1] ?? match[2];
+    if (importedName) {
+      linkImport(path, importedName, moduleNodeId, commitSha, files, addNode, edges);
+    }
+    match = pattern.exec(content);
+  }
+}
+
+function linkImport(
+  path: string,
+  importedName: string,
+  moduleNodeId: string,
+  commitSha: string | undefined,
+  files: Map<string, string>,
+  addNode: (node: GraphNode) => void,
+  edges: GraphEdge[],
+): void {
+  const localPath = resolveLocalImport(importedName, files);
+  const targetId = localPath ? moduleNodeIdForPath(localPath) : nodeId("import", importedName);
+  if (!localPath) {
+    addNode({
+      id: targetId,
+      kind: GRAPH_NODE_KIND.EXTERNAL_SYSTEM,
+      label: importedName,
+      provenance: observed(path, 0.7, "Import names an external package", commitSha),
+    });
+  }
+  const edgeId = `${moduleNodeId}->${targetId}`;
+  if (edges.some((edge) => edge.id === edgeId)) {
+    return;
+  }
+  edges.push({
+    id: edgeId,
+    source: moduleNodeId,
+    target: targetId,
+    kind: "depends_on",
+    bidirectional: false,
+    provenance: observed(path, 0.8, "Module import observed", commitSha),
+  });
+}
+
+function resolveLocalImport(importedName: string, files: Map<string, string>): string | undefined {
+  const leaf = importedName.split(".").pop() ?? importedName;
+  const base = importedName.split("/").pop() ?? leaf;
+  for (const filePath of files.keys()) {
+    const stem = filePath.split("/").pop()?.replace(/\.(py|go)$/, "");
+    if (stem && (stem === leaf || stem === base)) {
+      return filePath;
+    }
+  }
+  return undefined;
 }
 
 function collectManifestDependencies(

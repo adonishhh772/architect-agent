@@ -165,7 +165,7 @@ export function FindingDetailsPanel({ finding, onDispositionChange }: FindingDet
       )}
       {finding.references.length > 0 && (
         <div>
-          <h4 className="text-sm font-semibold text-[var(--md-on-surface)]">Evidence references</h4>
+          <h4 className="text-sm font-semibold text-[var(--md-on-surface)]">Cited files</h4>
           <ul className="mt-2 space-y-1 text-sm">
             {finding.references.map((ref) => (
               <li

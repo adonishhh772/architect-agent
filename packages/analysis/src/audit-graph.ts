@@ -33,6 +33,10 @@ const AuditAnnotation = Annotation.Root({
     reducer: (_left: string, right: string) => right,
     default: () => "",
   }),
+  architectureMermaid: Annotation<string>({
+    reducer: (left: string, right: string) => right || left,
+    default: () => "",
+  }),
   findings: Annotation<Finding[]>({
     reducer: mergeFindings,
     default: () => [],
@@ -55,6 +59,14 @@ const AuditAnnotation = Annotation.Root({
   }),
   pathsPartial: Annotation<string[]>({
     reducer: mergeUniqueStrings,
+    default: () => [],
+  }),
+  readResume: Annotation<Record<string, number>>({
+    reducer: (left: Record<string, number>, right: Record<string, number>) => ({ ...left, ...right }),
+    default: () => ({}),
+  }),
+  evidenceNotes: Annotation<string[]>({
+    reducer: (left: string[], right: string[]) => [...left, ...right],
     default: () => [],
   }),
   continueReading: Annotation<boolean>({
@@ -81,6 +93,7 @@ export interface MultiAgentAuditResult {
   findings: AnalysisReport["findings"];
   attackPaths: AnalysisReport["attackPaths"];
   architectureBrief?: string;
+  architectureMermaid?: string;
   threatModelOverview?: string;
   agentTrace: AgentTraceEntry[];
   filesSampled: number;
@@ -102,6 +115,7 @@ export async function runMultiAgentAudit(options: MultiAgentAuditOptions): Promi
     findings: state.findings,
     attackPaths: state.attackPaths,
     architectureBrief: state.architectureBrief || undefined,
+    architectureMermaid: state.architectureMermaid || undefined,
     threatModelOverview: state.overviewParts.filter(Boolean).join("\n\n") || undefined,
     agentTrace: state.agentTrace,
     filesSampled: state.pathsRead.length,
@@ -145,9 +159,9 @@ function buildAuditGraph(
     .addNode(AUDIT_AGENT.INFRASTRUCTURE, createSpecialistNode(options, specialists[5], graphSummary, manifest))
     .addNode(AUDIT_AGENT.PULL_REQUEST, createSpecialistNode(options, AUDIT_AGENT.PULL_REQUEST, graphSummary, manifest))
     .addNode(AUDIT_AGENT.VERIFIER, createVerifierNode(options))
-    .addEdge(START, AUDIT_AGENT.CARTOGRAPHER)
-    .addEdge(AUDIT_AGENT.CARTOGRAPHER, AUDIT_AGENT.CODE_READER)
+    .addEdge(START, AUDIT_AGENT.CODE_READER)
     .addConditionalEdges(AUDIT_AGENT.CODE_READER, routeAfterCodeReader)
+    .addEdge(AUDIT_AGENT.CARTOGRAPHER, AUDIT_AGENT.STRIDE)
     .addEdge(AUDIT_AGENT.STRIDE, AUDIT_AGENT.OWASP)
     .addEdge(AUDIT_AGENT.OWASP, AUDIT_AGENT.ATLAS)
     .addEdge(AUDIT_AGENT.ATLAS, AUDIT_AGENT.DATA)
@@ -182,6 +196,7 @@ function createSpecialistNode(
         graphSummary,
         manifest,
         priorFindingKeys: state.findings.map((finding) => finding.stableKey),
+        sharedEvidence: state.evidenceNotes,
       });
       return specialistUpdate(result, state.architectureBrief);
     } catch (error: unknown) {
@@ -216,7 +231,7 @@ function createCodeReaderNode(
 ) {
   const indexedPaths = [...options.context.contents.keys()];
   return async function codeReaderNode(state: AuditGraphState): Promise<Partial<AuditGraphState>> {
-    options.onPhase?.("Agent: code_reader", 2, AUDIT_AGENT_ORDER.length);
+    options.onPhase?.("Agent: code_reader", 1, AUDIT_AGENT_ORDER.length);
     options.onAgentStep?.({
       agentId: AUDIT_AGENT.CODE_READER,
       status: AGENT_ACTIVITY_STATUS.RUNNING,
@@ -243,25 +258,6 @@ function createCodeReaderNode(
         ],
       };
     }
-    if (!readerBudgetAllows(options) || state.readerRounds >= AUDIT_LIMITS.READER_ROUND_CAP) {
-      options.onAgentStep?.({
-        agentId: AUDIT_AGENT.CODE_READER,
-        status: AGENT_ACTIVITY_STATUS.SKIPPED,
-        kind: AGENT_STEP_KIND.ACTION,
-        step: AUDIT_MESSAGE.READER_RESERVE,
-      });
-      return {
-        continueReading: false,
-        agentTrace: [
-          {
-            agentId: AUDIT_AGENT.CODE_READER,
-            status: AGENT_RUN_STATUS.SKIPPED,
-            detail: AUDIT_MESSAGE.READER_RESERVE,
-            toolCallCount: 0,
-          },
-        ],
-      };
-    }
     try {
       const result = await runAuditSpecialist({
         ...options,
@@ -271,14 +267,11 @@ function createCodeReaderNode(
         manifest,
         priorFindingKeys: state.findings.map((finding) => finding.stableKey),
         alreadyRead: new Set(state.pathsRead),
+        readResume: state.readResume,
       });
       const mergedRead = new Set([...state.pathsRead, ...result.pathsRead]);
       const stillUnread = listUnreadPaths(indexedPaths, mergedRead);
-      const continueReading =
-        result.trace.status === AGENT_RUN_STATUS.COMPLETED &&
-        stillUnread.length > 0 &&
-        readerBudgetAllows(options) &&
-        state.readerRounds + 1 < AUDIT_LIMITS.READER_ROUND_CAP;
+      const continueReading = shouldContinueReading(result.trace.status, stillUnread.length);
       return {
         ...specialistUpdate(result, state.architectureBrief),
         continueReading,
@@ -311,21 +304,11 @@ function createCodeReaderNode(
 }
 
 function routeAfterCodeReader(state: AuditGraphState): string {
-  return state.continueReading ? AUDIT_AGENT.CODE_READER : AUDIT_AGENT.STRIDE;
+  return state.continueReading ? AUDIT_AGENT.CODE_READER : AUDIT_AGENT.CARTOGRAPHER;
 }
 
-function readerBudgetAllows(options: MultiAgentAuditOptions): boolean {
-  const usage = options.getUsage?.() ?? { requestsUsed: 0, tokensUsed: 0 };
-  if (
-    options.budget?.maxRequests !== undefined &&
-    usage.requestsUsed + AUDIT_LIMITS.SPECIALIST_REQUEST_RESERVE >= options.budget.maxRequests
-  ) {
-    return false;
-  }
-  if (options.budget?.maxTokens !== undefined && usage.tokensUsed >= options.budget.maxTokens) {
-    return false;
-  }
-  return true;
+export function shouldContinueReading(status: string, unreadCount: number): boolean {
+  return status === AGENT_RUN_STATUS.COMPLETED && unreadCount > 0;
 }
 
 function createVerifierNode(options: MultiAgentAuditOptions) {
@@ -363,12 +346,15 @@ function createVerifierNode(options: MultiAgentAuditOptions) {
 function specialistUpdate(result: AuditSpecialistResult, currentBrief: string): Partial<AuditGraphState> {
   return {
     architectureBrief: result.architectureBrief ?? currentBrief,
+    architectureMermaid: result.architectureMermaid ?? "",
     findings: result.findings,
     attackPaths: result.attackPaths,
     agentTrace: [result.trace],
     overviewParts: result.overview ? [result.overview] : [],
     pathsRead: result.pathsRead,
     pathsPartial: result.pathsPartial,
+    readResume: result.readResume ?? {},
+    evidenceNotes: result.evidenceNotes ?? [],
   };
 }
 

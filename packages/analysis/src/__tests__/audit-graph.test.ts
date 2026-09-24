@@ -9,7 +9,7 @@ import {
   OWASP_CATEGORY,
   type ProviderSettings,
 } from "@sentinel/schema";
-import { runMultiAgentAudit } from "../audit-graph.js";
+import { runMultiAgentAudit, shouldContinueReading } from "../audit-graph.js";
 import { selectPathsForAgent } from "../evidence-packs.js";
 import { verifyAuditFindings } from "../audit-verifier.js";
 import { extractArchitectureFromTypeScript } from "@sentinel/graph";
@@ -45,6 +45,14 @@ describe("selectPathsForAgent", () => {
   it("returns no infrastructure paths when none match", () => {
     const selected = selectPathsForAgent(["README.md", "src/app.ts"], AUDIT_AGENT.INFRASTRUCTURE, 4);
     expect(selected).toEqual([]);
+  });
+});
+
+describe("shouldContinueReading", () => {
+  it("keeps reading while indexed files are still unread", () => {
+    expect(shouldContinueReading(AGENT_RUN_STATUS.COMPLETED, 3)).toBe(true);
+    expect(shouldContinueReading(AGENT_RUN_STATUS.COMPLETED, 0)).toBe(false);
+    expect(shouldContinueReading(AGENT_RUN_STATUS.FAILED, 3)).toBe(false);
   });
 });
 
@@ -113,8 +121,8 @@ describe("runMultiAgentAudit", () => {
     });
 
     expect(result.agentTrace.map((entry) => entry.agentId)).toEqual([
-      AUDIT_AGENT.CARTOGRAPHER,
       AUDIT_AGENT.CODE_READER,
+      AUDIT_AGENT.CARTOGRAPHER,
       AUDIT_AGENT.STRIDE,
       AUDIT_AGENT.OWASP,
       AUDIT_AGENT.ATLAS,
@@ -126,8 +134,13 @@ describe("runMultiAgentAudit", () => {
     expect(result.agentTrace.filter((entry) => entry.agentId !== AUDIT_AGENT.PULL_REQUEST).every((entry) => entry.status === AGENT_RUN_STATUS.COMPLETED)).toBe(true);
     expect(result.agentTrace.find((entry) => entry.agentId === AUDIT_AGENT.PULL_REQUEST)?.status).toBe(AGENT_RUN_STATUS.SKIPPED);
     expect(result.memory.filesUnread).toEqual([]);
+    expect(result.agentTrace.find((entry) => entry.agentId === AUDIT_AGENT.STRIDE)?.detail).toContain("shared by the code reader");
+    expect(result.agentTrace.find((entry) => entry.agentId === AUDIT_AGENT.OWASP)?.detail).toContain("shared by the code reader");
+    expect(result.agentTrace.find((entry) => entry.agentId === AUDIT_AGENT.CARTOGRAPHER)?.detail).toContain("shared by the code reader");
     expect(result.filesSampled).toBe(SAMPLE_FILES.length);
     expect(result.architectureBrief).toContain("trust boundary");
+    expect(result.architectureMermaid).toContain("flowchart TD");
+    expect(result.architectureMermaid).toContain("API");
     const strideFinding = result.findings.find((finding) => finding.stableKey === "stride-session");
     expect(strideFinding?.affectedNodeIds).toContain(moduleNodeIdForPath("src/auth/session.ts"));
     expect(strideFinding?.owaspCategories).toContain(OWASP_CATEGORY.BROKEN_ACCESS_CONTROL);
@@ -200,6 +213,7 @@ function responseForAgent(agentId: string): Record<string, unknown> {
   if (agentId === AUDIT_AGENT.CARTOGRAPHER) {
     return {
       architectureBrief: "The app exposes HTTP at a trust boundary and calls an auth session module.",
+      architectureMermaid: "flowchart TD\n  app[\"App\"] --> api[\"API\"]",
       threatModelOverview: "Cartographer mapped the indexed modules.",
       findings: [
         draftFinding("cartographer-entry", "src/app.ts", "architecture", [], [], ["cybersecurity"]),

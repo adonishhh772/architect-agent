@@ -15,6 +15,7 @@ import {
   encryptVaultSecrets,
   type VaultSecrets,
 } from "../vault/vaultCrypto.js";
+import { replaceRetiredOpenAiModel } from "../provider/providerDefaults.js";
 import {
   clearStoredProviderSettings,
   hasUserSavedProviderSettings,
@@ -204,8 +205,8 @@ export function SessionProvider({ children }: SessionProviderProps): JSX.Element
       setHasStoredVault(true);
       setVaultStatus("unlocked");
       setHasModelApiKey(Boolean(mergedSecrets.modelApiKey));
-      const activeSettings = ProviderSettingsSchema.parse(
-        mergedSecrets.providerSettings ?? providerSettings,
+      const activeSettings = replaceRetiredOpenAiModel(
+        ProviderSettingsSchema.parse(mergedSecrets.providerSettings ?? providerSettings),
       );
       setProviderSettingsState(activeSettings);
       if (hasUserSavedProviderSettings() || secrets.providerSettings) {
@@ -235,7 +236,7 @@ export function SessionProvider({ children }: SessionProviderProps): JSX.Element
 
       const localProviderSettings = readStoredProviderSettings();
       const vaultProviderSettings = secrets.providerSettings
-        ? ProviderSettingsSchema.parse(secrets.providerSettings)
+        ? replaceRetiredOpenAiModel(ProviderSettingsSchema.parse(secrets.providerSettings))
         : null;
       const activeSettings = localProviderSettings ?? vaultProviderSettings;
 

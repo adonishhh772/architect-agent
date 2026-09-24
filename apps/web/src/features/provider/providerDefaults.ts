@@ -14,7 +14,7 @@ export const DEFAULT_REASONING_MODEL_BY_PROVIDER: Record<
   (typeof PROVIDER_ID)[keyof typeof PROVIDER_ID],
   string
 > = {
-  [PROVIDER_ID.OPENAI]: "o3",
+  [PROVIDER_ID.OPENAI]: "gpt-5",
   [PROVIDER_ID.ANTHROPIC]: "claude-opus-4-20250514",
   [PROVIDER_ID.GEMINI]: "gemini-2.5-pro",
   [PROVIDER_ID.DEEPSEEK]: "deepseek-v4-pro",
@@ -30,24 +30,24 @@ export const REASONING_MODEL_PRESETS_BY_PROVIDER: Record<
 > = {
   [PROVIDER_ID.OPENAI]: [
     {
-      id: "o3",
-      label: "o3 (flagship reasoning)",
-      description: "OpenAI reasoning model for complex analysis and multi-step tasks.",
+      id: "gpt-5",
+      label: "GPT-5",
+      description: "Current flagship for coding, reasoning, and multi-step threat analysis.",
     },
     {
-      id: "o3-mini",
-      label: "o3-mini",
-      description: "Lower-latency reasoning with strong cost/performance balance.",
+      id: "gpt-5-mini",
+      label: "GPT-5 mini",
+      description: "Faster GPT-5 tier for high-volume investigation loops.",
     },
     {
-      id: "o4-mini",
-      label: "o4-mini",
-      description: "Compact reasoning model; good for high-volume investigation loops.",
+      id: "gpt-4.1",
+      label: "GPT-4.1",
+      description: "Strong instruction following and tool use, without a separate reasoning step.",
     },
     {
-      id: "o1",
-      label: "o1",
-      description: "Earlier reasoning series; use if o3 is unavailable on your account.",
+      id: "gpt-4.1-mini",
+      label: "GPT-4.1 mini",
+      description: "Lower-cost GPT-4.1 tier for shorter review passes.",
     },
   ],
   [PROVIDER_ID.ANTHROPIC]: [
@@ -108,9 +108,9 @@ export const REASONING_MODEL_PRESETS_BY_PROVIDER: Record<
       description: "Common OpenAI-compatible reasoning endpoint on DeepSeek.",
     },
     {
-      id: "o3",
-      label: "o3",
-      description: "Use when your compatible gateway proxies OpenAI reasoning models.",
+      id: "gpt-5",
+      label: "gpt-5",
+      description: "Use when your compatible gateway proxies OpenAI GPT-5.",
     },
     {
       id: "custom",
@@ -128,6 +128,21 @@ export function getReasoningPresetsForProvider(
   providerId: (typeof PROVIDER_ID)[keyof typeof PROVIDER_ID],
 ): ReasoningModelPreset[] {
   return REASONING_MODEL_PRESETS_BY_PROVIDER[providerId];
+}
+
+const RETIRED_OPENAI_MODEL_IDS = new Set(["o1", "o3", "o3-mini", "o4-mini"]);
+
+export function replaceRetiredOpenAiModel<T extends { providerId: string; modelId: string }>(settings: T): T {
+  if (settings.providerId !== PROVIDER_ID.OPENAI) {
+    return settings;
+  }
+  if (!RETIRED_OPENAI_MODEL_IDS.has(settings.modelId)) {
+    return settings;
+  }
+  return {
+    ...settings,
+    modelId: DEFAULT_REASONING_MODEL_BY_PROVIDER[PROVIDER_ID.OPENAI],
+  };
 }
 
 export function getDefaultReasoningModelId(

@@ -24,10 +24,14 @@ export function selectUnreadBatch(
   contents: Map<string, string>,
   limit: number = AUDIT_LIMITS.READER_BATCH_FILES,
   maxChars: number = AUDIT_LIMITS.READER_BATCH_CHARS,
+  priorityPaths: ReadonlySet<string> = new Set<string>(),
 ): string[] {
   const ranked = paths
     .filter((path) => !alreadyRead.has(path))
-    .map((path) => ({ path, score: scorePathForCoverage(path) }));
+    .map((path) => ({
+      path,
+      score: priorityPaths.has(path) ? Number.MAX_SAFE_INTEGER : scorePathForCoverage(path),
+    }));
   ranked.sort((left, right) => right.score - left.score || left.path.localeCompare(right.path));
 
   const selected: string[] = [];

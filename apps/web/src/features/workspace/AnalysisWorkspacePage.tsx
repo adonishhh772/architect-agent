@@ -10,11 +10,8 @@ import {
   Github,
   LayoutDashboard,
   LockKeyhole,
-  Map,
   Play,
   ScanSearch,
-  MessageSquare,
-  ShieldAlert,
   SlidersHorizontal,
   Square,
   Upload,
@@ -26,21 +23,17 @@ import { PageSection } from "../../components/layout/PageSection";
 import { AgentActivityPanel } from "../analysis/AgentActivityPanel";
 import { useAnalysisRunner } from "../analysis/useAnalysisRunner";
 import { exportReportHtml, exportReportJson, exportReportMarkdown, exportReportSarif } from "../export/reportExportActions";
-import { ArchitectureOverview } from "../architecture/ArchitectureOverview";
 import { rememberDisposition } from "@sentinel/analysis";
-import { ArchitectureExplorer } from "../graph/ArchitectureExplorer";
-import { FindingDetailsPanel } from "../findings/FindingDetailsPanel";
-import { FindingsTable } from "../findings/FindingsTable";
+import { ReportAccordion, REPORT_SECTION } from "../../components/layout/ReportAccordion";
+import { buildReportAccordionItems } from "./buildReportAccordionItems";
 import { RepositoryFileTree } from "../ingest/RepositoryFileTree";
 import { useRepositoryIngestion } from "../ingest/useRepositoryIngestion";
 import { parseGitHubRepositoryUrl } from "@sentinel/ingestion";
-import { StrideThreatModelPanel } from "../findings/StrideThreatModelPanel";
-import { FrameworkRiskPanel } from "../findings/FrameworkRiskPanel";
-import { PullRequestReview } from "../findings/PullRequestReview";
-import { FollowUpCopilot } from "../copilot/FollowUpCopilot";
 import { listSavedReports, saveReportLocally, type PersistedReportRecord } from "../persistence/indexedDbStore";
 import type { AgentWorkItem } from "../analysis/AgentActivityPanel/agentWorkState";
 import { RunHistory } from "./RunHistory";
+import { WorkspaceJourney } from "./WorkspaceJourney";
+import { buildWorkspaceJourney } from "./WorkspaceJourney/workspaceJourneyModel";
 import { canRunProviderInBrowser } from "../provider/aiBrowserTransport";
 import { useSession } from "../session/SessionProvider";
 import { loadWorkspaceSession, saveWorkspaceSession } from "./workspaceSessionStore";
@@ -70,6 +63,7 @@ export function AnalysisWorkspacePage(): JSX.Element {
   const [exclusions, setExclusions] = useState(".env,secrets,id_rsa");
   const [githubToken, setGithubToken] = useState("");
   const [maxRequests, setMaxRequests] = useState(25);
+  const [advisoryLookupConsent, setAdvisoryLookupConsent] = useState(false);
   const [maxTokens, setMaxTokens] = useState(200_000);
   const [selectedTreePath, setSelectedTreePath] = useState<string | undefined>();
   const [store, setStore] = useState<RepositoryStore | null>(null);
@@ -77,9 +71,12 @@ export function AnalysisWorkspacePage(): JSX.Element {
   const [commitSha, setCommitSha] = useState<string | undefined>();
   const [report, setReport] = useState<AnalysisReport | null>(null);
   const [selectedFindingId, setSelectedFindingId] = useState<string | undefined>();
-  const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>();
-  const [showDataFlows, setShowDataFlows] = useState(true);
-  const [showTrustBoundaries, setShowTrustBoundaries] = useState(true);
+  const [selectedMapLabel, setSelectedMapLabel] = useState<string | undefined>();
+  const [openReportSection, setOpenReportSection] = useState<string>(REPORT_SECTION.MAP);
+
+  useEffect(() => {
+    setOpenReportSection(REPORT_SECTION.MAP);
+  }, [report?.id]);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [sessionRestored, setSessionRestored] = useState(false);
   const [savedRuns, setSavedRuns] = useState<PersistedReportRecord[]>([]);
@@ -138,6 +135,18 @@ export function AnalysisWorkspacePage(): JSX.Element {
   const providerLabel = session.providerSettings.providerId;
   const aiBrowserReady = canRunProviderInBrowser(session.providerSettings.providerId);
   const progress = ingestion.progress ?? runner.progress;
+  const providerReady =
+    session.vaultStatus === "unlocked" &&
+    Boolean(session.getModelApiKey()) &&
+    session.connectionTested &&
+    session.aiTransmissionConfirmed &&
+    aiBrowserReady;
+  const journey = buildWorkspaceJourney({
+    vaultReady: providerReady,
+    sourceIndexed: Boolean(store),
+    analysisRunning: runner.isRunning,
+    reportReady: Boolean(report),
+  });
   const analysisBlockedReason = !store
     ? "Index a repository first."
     : session.vaultStatus !== "unlocked"
@@ -250,6 +259,7 @@ export function AnalysisWorkspacePage(): JSX.Element {
         providerSettings: session.providerSettings,
         apiKey: session.getModelApiKey() ?? undefined,
         enableAi: true,
+        advisoryLookupConsent,
         exclusions: exclusionList,
         maxRequests,
         maxTokens,
@@ -291,6 +301,10 @@ export function AnalysisWorkspacePage(): JSX.Element {
     setExclusions(event.target.value);
   };
 
+  const handleAdvisoryConsentChange = (event: ChangeEvent<HTMLInputElement>): void => {
+    setAdvisoryLookupConsent(event.target.checked);
+  };
+
   const handleTransmissionConfirmChange = (event: ChangeEvent<HTMLInputElement>): void => {
     session.setAiTransmissionConfirmed(event.target.checked);
   };
@@ -303,15 +317,15 @@ export function AnalysisWorkspacePage(): JSX.Element {
     setMaxTokens(Number(event.target.value));
   };
 
-  const handleShowDataFlowsChange = (event: ChangeEvent<HTMLInputElement>): void => {
-    setShowDataFlows(event.target.checked);
-  };
-
-  const handleShowTrustBoundariesChange = (event: ChangeEvent<HTMLInputElement>): void => {
-    setShowTrustBoundaries(event.target.checked);
-  };
   const handleSelectFinding = (findingId: string): void => {
     setSelectedFindingId(findingId);
+    setOpenReportSection(REPORT_SECTION.FINDINGS);
+  };
+
+  const handleSelectCitation = (path: string): void => {
+    setSelectedTreePath(path);
+    setStatusMessage(`Opened ${path} from the recommendation citation.`);
+    document.getElementById("repository-file-tree")?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const handleExportJson = (): void => {
@@ -350,6 +364,10 @@ export function AnalysisWorkspacePage(): JSX.Element {
         ),
       };
     });
+  };
+
+  const handleOpenReportSection = (sectionId: string): void => {
+    setOpenReportSection(sectionId);
   };
 
   const handleSelectRun = (runId: string): void => {
@@ -405,8 +423,8 @@ export function AnalysisWorkspacePage(): JSX.Element {
       <PageHero
         icon={LayoutDashboard}
         eyebrow="Analysis workspace"
-        title="Ingest, analyze, and explore evidence"
-        description="Browser mode keeps processing local to this tab. GitHub Pages hosts the UI only — Deep Runner jobs run separately and import via the Import page."
+        title="Review a repository"
+        description="Prepare the model, index the source, then read the architecture map. The rest of the report stays closed until you open a section."
       >
         <div className="flex flex-wrap gap-2">
           <StatusChip label="Indexed" active={Boolean(store)} />
@@ -424,6 +442,8 @@ export function AnalysisWorkspacePage(): JSX.Element {
           </p>
         )}
       </PageHero>
+
+      <WorkspaceJourney steps={journey.steps} nextAction={journey.nextAction} />
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <PageSection
@@ -559,6 +579,16 @@ export function AnalysisWorkspacePage(): JSX.Element {
                 />
                 I confirm sending source snippets to the provider for detailed threat modeling
               </label>
+              <label className="flex items-start gap-2 text-[var(--md-on-surface)]">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 accent-[var(--md-primary)]"
+                  data-testid="osv-lookup-confirm"
+                  checked={advisoryLookupConsent}
+                  onChange={handleAdvisoryConsentChange}
+                />
+                I confirm sending package names and versions from the indexed lockfile to the public OSV advisory service
+              </label>
               <div className="grid gap-3 md:grid-cols-2">
                 <MaterialTextField
                   label="Max AI requests"
@@ -581,34 +611,6 @@ export function AnalysisWorkspacePage(): JSX.Element {
           </div>
         </PageSection>
       </div>
-
-      <PageSection
-        title="Saved runs"
-        description="Every finished threat model stays in this browser. Open a run to see its findings, architecture, and agent steps."
-        icon={Database}
-        testId="saved-runs"
-      >
-        <RunHistory
-          runs={savedRuns}
-          selectedRunId={selectedRunId}
-          error={runListError}
-          onSelectRun={handleSelectRun}
-        />
-      </PageSection>
-
-      {store && (
-        <PageSection
-          title="Repository tree"
-          description="Indexed paths from the last ingest. Excluded files are struck through."
-          icon={FileArchive}
-        >
-          <RepositoryFileTree
-            store={store}
-            selectedPath={selectedTreePath}
-            onSelectPath={setSelectedTreePath}
-          />
-        </PageSection>
-      )}
 
       {(progress || statusMessage || ingestion.error || runner.isRunning || runner.agentWork.length > 0) && (
         <PageSection
@@ -643,131 +645,59 @@ export function AnalysisWorkspacePage(): JSX.Element {
       )}
 
       {report && (
-        <>
-          <PageSection
-            title="What this repository is"
-            description="Purpose, languages, and the architecture inferred from JavaScript, Python, and Go source."
-            icon={Map}
-            testId="repository-architecture"
-          >
-            <ArchitectureOverview report={report} />
-          </PageSection>
-          <StrideThreatModelPanel
-            report={report}
-            onSelectFinding={handleSelectFinding}
+        <ReportAccordion
+          items={buildReportAccordionItems({
+            report,
+            store,
+            githubToken,
+            selectedFindingId,
+            selectedFinding,
+            providerSettings: session.providerSettings,
+            apiKey: session.getModelApiKey(),
+            transmissionConfirmed: session.aiTransmissionConfirmed,
+            browserReady: aiBrowserReady,
+            onSelectFinding: handleSelectFinding,
+            onDispositionChange: handleDispositionChange,
+            onExportJson: handleExportJson,
+            onExportMarkdown: handleExportMarkdown,
+            onExportHtml: handleExportHtml,
+            onExportSarif: handleExportSarif,
+            onPersistReport: handlePersistReport,
+            selectedMapLabel,
+            onSelectMapLabel: setSelectedMapLabel,
+            onSelectCitation: handleSelectCitation,
+          })}
+          openSectionId={openReportSection}
+          onOpenSectionChange={handleOpenReportSection}
+        />
+      )}
+
+      <PageSection
+        title="Saved runs"
+        description="Open a finished run to bring its map, findings, and agent steps back into this page."
+        icon={Database}
+        testId="saved-runs"
+      >
+        <RunHistory
+          runs={savedRuns}
+          selectedRunId={selectedRunId}
+          error={runListError}
+          onSelectRun={handleSelectRun}
+        />
+      </PageSection>
+
+      {store && (
+        <PageSection
+          title="Repository tree"
+          description="Indexed paths from the last ingest. Excluded files are struck through."
+          icon={FileArchive}
+        >
+          <RepositoryFileTree
+            store={store}
+            selectedPath={selectedTreePath}
+            onSelectPath={setSelectedTreePath}
           />
-          <FrameworkRiskPanel
-            report={report}
-            onSelectFinding={handleSelectFinding}
-          />
-          {report.pullRequestReview && (
-            <PageSection
-              title="Pull request review"
-              description="New, fixed, and regressed findings since the last snapshot. Copy the comment anywhere. Posting from this page works on the local dev server with a GitHub token; GitHub Pages should use the CLI."
-              icon={Github}
-            >
-              <PullRequestReview
-                review={report.pullRequestReview}
-                owner={report.repository.owner}
-                name={report.repository.name}
-                githubToken={githubToken}
-              />
-            </PageSection>
-          )}
-
-          <PageSection
-            title="Architecture map"
-            description="Folder overview and paginated module views with import relations. Findings that cite a source file are linked to that module."
-            icon={Map}
-          >
-            <div className="mb-4 flex flex-wrap gap-4 text-sm text-[var(--md-on-surface)]">
-              <label className="flex items-center gap-2">
-                <input type="checkbox" checked={showDataFlows} onChange={handleShowDataFlowsChange} />
-                Data flows
-              </label>
-              <label className="flex items-center gap-2">
-                <input type="checkbox" checked={showTrustBoundaries} onChange={handleShowTrustBoundariesChange} />
-                Trust boundaries
-              </label>
-            </div>
-            <ArchitectureExplorer
-              graph={report.graph}
-              findings={report.findings}
-              selectedNodeId={selectedNodeId}
-              onSelectNode={setSelectedNodeId}
-              showDataFlows={showDataFlows}
-              showTrustBoundaries={showTrustBoundaries}
-            />
-          </PageSection>
-
-          <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-            <PageSection title="Findings" description="Filter by category and inspect evidence." icon={ShieldAlert}>
-              <FindingsTable
-                findings={report.findings}
-                selectedFindingId={selectedFindingId}
-                onSelectFinding={setSelectedFindingId}
-              />
-            </PageSection>
-            <FindingDetailsPanel finding={selectedFinding} onDispositionChange={handleDispositionChange} />
-          </section>
-
-          {store && (
-            <PageSection
-              title="Follow-up copilot"
-              description="Ask about callers, sinks, and the ranked findings without starting a new audit."
-              icon={MessageSquare}
-            >
-              <FollowUpCopilot
-                contents={store.contents}
-                graph={report.graph}
-                findings={report.findings}
-                providerSettings={session.providerSettings}
-                apiKey={session.getModelApiKey()}
-                transmissionConfirmed={session.aiTransmissionConfirmed}
-                browserReady={aiBrowserReady}
-              />
-            </PageSection>
-          )}
-
-          <PageSection title="Coverage & export" icon={Database}>
-            <p className="text-sm leading-relaxed text-[var(--md-on-surface-variant)]">{report.executiveSummary}</p>
-            <ul className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {[
-                ["Indexed files", report.coverage.totalFilesIndexed],
-                ["Excluded", report.coverage.excludedFiles],
-                ["Truncated", report.coverage.truncated ? "yes" : "no"],
-                ["Requests", report.budget.requestsUsed],
-                ["Tokens", report.budget.tokensUsed],
-              ].map(([label, value]) => (
-                <li
-                  key={String(label)}
-                  className="rounded-xl border border-[var(--md-outline)]/25 bg-[var(--md-surface-container-high)]/50 px-4 py-3 text-sm"
-                >
-                  <span className="text-[var(--md-on-surface-variant)]">{label}</span>
-                  <p className="font-display text-lg font-semibold text-[var(--md-on-surface)]">{value}</p>
-                </li>
-              ))}
-            </ul>
-            <p className="mt-4 text-sm text-amber-700 dark:text-amber-200/90">{report.disclaimer}</p>
-            <div className="mt-5 flex flex-wrap gap-2">
-              <MaterialButton variant="outlined" icon={<FileArchive className="h-4 w-4" aria-hidden />} onClick={handleExportJson}>
-                Export JSON
-              </MaterialButton>
-              <MaterialButton variant="outlined" onClick={handleExportMarkdown}>
-                Export Markdown
-              </MaterialButton>
-              <MaterialButton variant="outlined" onClick={handleExportHtml}>
-                Export HTML
-              </MaterialButton>
-              <MaterialButton variant="outlined" onClick={handleExportSarif}>
-                Export SARIF
-              </MaterialButton>
-              <MaterialButton icon={<Database className="h-4 w-4" aria-hidden />} onClick={handlePersistReport}>
-                Save to IndexedDB
-              </MaterialButton>
-            </div>
-          </PageSection>
-        </>
+        </PageSection>
       )}
     </div>
   );

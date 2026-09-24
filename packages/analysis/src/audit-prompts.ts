@@ -10,7 +10,7 @@ import { ANALYZER_SYSTEM_PROMPT } from "./prompt-safety.js";
 
 const AGENT_FOCUS: Record<(typeof AUDIT_AGENT)[keyof typeof AUDIT_AGENT], string> = {
   [AUDIT_AGENT.CARTOGRAPHER]:
-    "Map services, modules, trust boundaries, data stores, external systems, AI agents, tools, and deployment units. Describe how requests and data move between them. Record architecture gaps where a connection cannot be proven from indexed files.",
+    "Map services, modules, trust boundaries, data stores, external systems, AI agents, tools, and deployment units. Describe how requests and data move between them. After that map is clear, write architectureMermaid as a flowchart TD diagram of those connections. Record architecture gaps where a connection cannot be proven from indexed files.",
   [AUDIT_AGENT.STRIDE]:
     "Review spoofing, tampering, repudiation, information disclosure, denial of service, and elevation of privilege. Every security finding must include strideCategories.",
   [AUDIT_AGENT.OWASP]:
@@ -75,6 +75,7 @@ export function buildSpecialistUserPrompt(input: {
     `Return JSON only:
 {
   "architectureBrief": "required for cartographer; omit for other agents",
+  "architectureMermaid": "cartographer only, after mapping connections: flowchart TD\\n  app[\\"App\\"] --> api[\\"API\\"]",
   "threatModelOverview": "short paragraph for this agent's scope",
   "toolCalls": [{"tool":"readFileRange","args":{"path":"src/app.ts","startLine":1,"endLine":40}}],
   "findings": [{

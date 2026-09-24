@@ -1,4 +1,4 @@
-import { reportToMarkdown, reportToPrintableHtml, reportToSarif } from "@sentinel/analysis";
+import { reportToMarkdown, reportToPrintableHtml, reportToSarif, sbomToCycloneDx } from "@sentinel/analysis";
 import { sanitizeReportForExport, type AnalysisReport } from "@sentinel/schema";
 
 export function downloadTextFile(filename: string, content: string, mimeType: string): void {
@@ -33,6 +33,14 @@ export function exportReportSarif(report: AnalysisReport): void {
     `architecture-sentinel-${report.id}.sarif`,
     reportToSarif(report),
     "application/sarif+json",
+  );
+}
+
+export function exportReportCycloneDx(report: AnalysisReport): void {
+  downloadTextFile(
+    `architecture-sentinel-${report.id}.cdx.json`,
+    sbomToCycloneDx(report.sbom ?? [], `urn:uuid:${report.id}`),
+    "application/vnd.cyclonedx+json",
   );
 }
 

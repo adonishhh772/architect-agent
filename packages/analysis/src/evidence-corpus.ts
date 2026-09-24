@@ -45,7 +45,7 @@ export function rankSecurityRelevantPaths(paths: string[]): string[] {
         score += 2;
       }
     }
-    if (lower.endsWith(".ts") || lower.endsWith(".tsx") || lower.endsWith(".py")) {
+    if (/\.(ts|tsx|py|html?|ya?ml|sql|sh|bash)$/.test(lower)) {
       score += 1;
     }
     if (lower.includes("test") || lower.includes("__mocks__")) {

@@ -70,6 +70,7 @@ export const AUDIT_MESSAGE = {
   READER_COMPLETE: "Read the next unread batch. Remaining indexed files are read in the next round.",
   READER_DONE: "Every indexed file was read or was already in memory.",
   NO_PULL_REQUESTS: "No open pull requests were available. ZIP uploads have no pull request API.",
+  EMPTY_BATCH: "The model returned an empty reply for this batch. Continuing with the remaining indexed files.",
 } as const;
 
 const DEFAULT_RISK_BY_AGENT: Record<string, Array<(typeof RISK_DOMAIN_LIST)[number]>> = {
@@ -159,6 +160,7 @@ export interface AuditSpecialistOptions {
   priorFindingKeys: string[];
   alreadyRead?: ReadonlySet<string>;
   readResume?: Readonly<Record<string, number>>;
+  readColumns?: Readonly<Record<string, number>>;
   sharedEvidence?: readonly string[];
   pullRequests?: PullRequestSnapshot[];
   priorMemory?: AuditMemory;
@@ -178,6 +180,7 @@ export interface AuditSpecialistResult {
   pathsRead: string[];
   pathsPartial: string[];
   readResume?: Record<string, number>;
+  readColumns?: Record<string, number>;
   evidenceNotes?: string[];
   continueReading: boolean;
   trace: AgentTraceEntry;
@@ -211,6 +214,7 @@ async function executeSpecialist(options: AuditSpecialistOptions): Promise<Audit
     options.context,
     options.pullRequests,
     options.readResume ?? {},
+    options.readColumns ?? {},
   );
   if (selection.skip) {
     return finishSpecialist(options, selection.status, selection.detail, 0);
@@ -262,25 +266,18 @@ async function executeSpecialist(options: AuditSpecialistOptions): Promise<Audit
     );
     await waitForLivePaint();
 
-    const completion = await options.provider.complete(options.apiKey, {
-      messages: [
-        { role: "system", content: buildSpecialistSystemPrompt(options.agentId) },
-        {
-          role: "user",
-          content: buildSpecialistUserPrompt({
-            agentId: options.agentId,
-            architectureBrief: options.architectureBrief,
-            graphSummary: options.graphSummary,
-            manifest: options.manifest,
-            observations: [...observations, ...followUpObservations].map((item) => item.text),
-            priorFindingKeys: options.priorFindingKeys,
-            memoryText: formatMemoryForPrompt(options.priorMemory),
-          }),
-        },
-      ],
-      jsonSchema: {},
-      maxOutputTokens: 8192,
+    const completion = await requestSpecialistCompletion(options, {
+      agentId: options.agentId,
+      architectureBrief: options.architectureBrief,
+      graphSummary: options.graphSummary,
+      manifest: manifestForAgent(options.agentId, options.manifest),
+      observations: [...observations, ...followUpObservations].map((item) => item.text),
+      priorFindingKeys: options.priorFindingKeys,
+      memoryText: formatMemoryForPrompt(options.priorMemory),
     });
+    if (!completion) {
+      return emptyReaderBatch(options, selection.finishedPaths ?? selected, partialPaths, selection.readResume, selection.readColumns, toolCallCount);
+    }
     options.onUsage?.(completion.usage);
 
     const parsed = parseSpecialistResponse(completion.text, SpecialistResponseSchema);
@@ -347,6 +344,7 @@ async function executeSpecialist(options: AuditSpecialistOptions): Promise<Audit
     pathsRead: selection.finishedPaths ?? selected,
     pathsPartial: partialPaths,
     readResume: selection.readResume,
+    readColumns: selection.readColumns,
     evidenceNotes: options.agentId === AUDIT_AGENT.CODE_READER ? selection.observations.map((item) => item.text) : undefined,
     continueReading: false,
     trace: {
@@ -550,6 +548,60 @@ function reportAgentStep(
   options.onAgentStep?.({ agentId: options.agentId, status, kind, step });
 }
 
+const EMPTY_COMPLETION = "Empty completion";
+const SPECIALIST_OUTPUT_TOKENS = 8192;
+
+function manifestForAgent(_agentId: string, manifest: string): string {
+  return manifest.split("\n").slice(0, AUDIT_LIMITS.READER_MANIFEST_PATHS).join("\n");
+}
+
+async function requestSpecialistCompletion(
+  options: AuditSpecialistOptions,
+  prompt: Parameters<typeof buildSpecialistUserPrompt>[0],
+): Promise<Awaited<ReturnType<AiProviderAdapter["complete"]>> | undefined> {
+  try {
+    return await options.provider.complete(options.apiKey, {
+      messages: [
+        { role: "system", content: buildSpecialistSystemPrompt(options.agentId) },
+        { role: "user", content: buildSpecialistUserPrompt(prompt) },
+      ],
+      jsonSchema: {},
+      maxOutputTokens: SPECIALIST_OUTPUT_TOKENS,
+    });
+  } catch (error: unknown) {
+    if (options.agentId === AUDIT_AGENT.CODE_READER && error instanceof Error && error.message === EMPTY_COMPLETION) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+function emptyReaderBatch(
+  options: AuditSpecialistOptions,
+  pathsRead: string[],
+  pathsPartial: string[],
+  readResume: Record<string, number> | undefined,
+  readColumns: Record<string, number> | undefined,
+  toolCallCount: number,
+): AuditSpecialistResult {
+  reportAgentStep(options, AGENT_ACTIVITY_STATUS.COMPLETED, AGENT_STEP_KIND.ACTION, AUDIT_MESSAGE.EMPTY_BATCH);
+  return {
+    findings: [],
+    attackPaths: [],
+    pathsRead,
+    pathsPartial,
+    readResume,
+    readColumns,
+    continueReading: false,
+    trace: {
+      agentId: options.agentId,
+      status: AGENT_RUN_STATUS.COMPLETED,
+      detail: AUDIT_MESSAGE.EMPTY_BATCH,
+      toolCallCount,
+    },
+  };
+}
+
 function finishSpecialist(
   options: AuditSpecialistOptions,
   status: AgentTraceEntry["status"],
@@ -595,6 +647,7 @@ interface EvidenceSelection {
   partialPaths: string[];
   finishedPaths?: string[];
   readResume?: Record<string, number>;
+  readColumns?: Record<string, number>;
   skip: boolean;
   status: AgentTraceEntry["status"];
   detail: string;
@@ -607,6 +660,7 @@ function selectEvidenceForAgent(
   context: InvestigationToolContext,
   pullRequests: PullRequestSnapshot[] | undefined,
   readResume: Readonly<Record<string, number>>,
+  readColumns: Readonly<Record<string, number>>,
 ): EvidenceSelection {
   if (agentId === AUDIT_AGENT.PULL_REQUEST) {
     if (!pullRequests || pullRequests.length === 0) {
@@ -642,13 +696,14 @@ function selectEvidenceForAgent(
         AUDIT_LIMITS.READER_BATCH_CHARS,
         priorityPaths,
       );
-      const coverage = readFileWindows(context, selected, readResume);
+      const coverage = readFileWindows(context, selected, readResume, readColumns);
       return {
         paths: selected,
         observations: coverage.observations,
         partialPaths: coverage.partialPaths,
         finishedPaths: coverage.finishedPaths,
         readResume: coverage.resumeLines,
+        readColumns: coverage.resumeColumns,
         skip: selected.length === 0,
         status: AGENT_RUN_STATUS.COMPLETED,
         detail: selected.length === 0 ? AUDIT_MESSAGE.READER_DONE : AUDIT_MESSAGE.READER_COMPLETE,

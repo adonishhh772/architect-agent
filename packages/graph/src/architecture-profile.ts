@@ -46,9 +46,15 @@ function languagesPresent(files: Map<string, string>): ArchitectureProfile["lang
       found.add(language);
     }
   }
-  return [SOURCE_LANGUAGE.JAVASCRIPT, SOURCE_LANGUAGE.PYTHON, SOURCE_LANGUAGE.GO].filter((language) =>
-    found.has(language),
-  );
+  return [
+    SOURCE_LANGUAGE.JAVASCRIPT,
+    SOURCE_LANGUAGE.PYTHON,
+    SOURCE_LANGUAGE.GO,
+    SOURCE_LANGUAGE.HTML,
+    SOURCE_LANGUAGE.YAML,
+    SOURCE_LANGUAGE.SQL,
+    SOURCE_LANGUAGE.SHELL,
+  ].filter((language) => found.has(language));
 }
 
 function labelsFor(graph: ArchitectureGraph, kind: string): string[] {

@@ -7,7 +7,7 @@ import {
 } from "@sentinel/schema";
 import type { ExtractionInput } from "./typescript-extractor.js";
 import { extractArchitectureFromTypeScript, moduleNodeIdForPath } from "./typescript-extractor.js";
-import { isGoPath, isPythonPath, sourceLanguageForPath } from "./source-language.js";
+import { isGoPath, isPythonPath, isReviewedTextPath, sourceLanguageForPath } from "./source-language.js";
 
 const PYTHON_ROUTE =
   /@(?:app|router|bp|api)\.(?:route|get|post|put|patch|delete)\(\s*['"]([^'"]+)['"]|@(?:app|router)\.(?:get|post|put|patch|delete)\(\s*['"]([^'"]+)['"]/g;
@@ -48,7 +48,7 @@ export function extractArchitecture(input: ExtractionInput): ArchitectureGraph {
   };
 
   for (const [path, content] of input.files) {
-    if (!isPythonPath(path) && !isGoPath(path)) {
+    if (!isReviewedTextPath(path)) {
       continue;
     }
     const moduleNodeId = moduleNodeIdForPath(path);
@@ -60,11 +60,13 @@ export function extractArchitecture(input: ExtractionInput): ArchitectureGraph {
       metadata: { language: sourceLanguageForPath(path) },
       provenance: observed(path, 0.9, "Source module file present in index", input.commitSha),
     });
-    collectRoutes(path, content, moduleNodeId, input.commitSha, addNode, edges);
-    collectStores(path, content, moduleNodeId, input.commitSha, addNode, edges);
-    collectAi(path, content, moduleNodeId, input.commitSha, addNode, edges);
-    collectHosts(path, content, moduleNodeId, input.commitSha, addNode, edges);
-    collectImports(path, content, moduleNodeId, input.commitSha, input.files, addNode, edges);
+    if (isPythonPath(path) || isGoPath(path)) {
+      collectRoutes(path, content, moduleNodeId, input.commitSha, addNode, edges);
+      collectStores(path, content, moduleNodeId, input.commitSha, addNode, edges);
+      collectAi(path, content, moduleNodeId, input.commitSha, addNode, edges);
+      collectHosts(path, content, moduleNodeId, input.commitSha, addNode, edges);
+      collectImports(path, content, moduleNodeId, input.commitSha, input.files, addNode, edges);
+    }
   }
 
   collectManifestDependencies(input, addNode, edges);

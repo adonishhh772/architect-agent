@@ -100,6 +100,11 @@ export function detectLanguage(path: string): string | undefined {
     ".json": "json",
     ".md": "markdown",
     ".dockerfile": "docker",
+    ".html": "html",
+    ".htm": "html",
+    ".sql": "sql",
+    ".sh": "shell",
+    ".bash": "shell",
   };
   if (path.toLowerCase().endsWith("dockerfile")) {
     return "docker";

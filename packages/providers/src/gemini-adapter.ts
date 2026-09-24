@@ -7,6 +7,7 @@ import type {
   ConnectionTestResult,
   FetchFn,
 } from "./types.js";
+import { completionTokenLimit, thinkingTokensForEffort } from "./completion-budget.js";
 import { ProviderError } from "./types.js";
 
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
@@ -75,8 +76,9 @@ export function createGeminiAdapter(
         contents,
         generationConfig: {
           temperature: request.temperature ?? 0.2,
-          maxOutputTokens: request.maxOutputTokens ?? settings.outputLimit ?? 4096,
+          maxOutputTokens: completionTokenLimit(request.maxOutputTokens ?? settings.outputLimit, thinkingTokensForEffort(settings.reasoningEffort)),
           responseMimeType: request.jsonSchema ? "application/json" : "text/plain",
+          thinkingConfig: { thinkingBudget: thinkingTokensForEffort(settings.reasoningEffort) },
         },
       };
       if (systemMessage) {
@@ -105,7 +107,7 @@ export function createGeminiAdapter(
 
       const data = (await response.json()) as {
         candidates?: Array<{
-          content?: { parts?: Array<{ text?: string }> };
+          content?: { parts?: Array<{ text?: string; thought?: boolean }> };
           finishReason?: string;
         }>;
         usageMetadata?: {
@@ -116,8 +118,10 @@ export function createGeminiAdapter(
         modelVersion?: string;
       };
 
-      const content =
-        data.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("") ?? "";
+      const parts = data.candidates?.[0]?.content?.parts ?? [];
+      const answer = parts.filter((part) => !part.thought).map((part) => part.text ?? "").join("");
+      const thoughts = parts.filter((part) => part.thought).map((part) => part.text ?? "").join("");
+      const content = answer.trim() || thoughts.trim();
       if (!content) {
         throw new ProviderError(providerId, "malformed_response", "Empty completion");
       }

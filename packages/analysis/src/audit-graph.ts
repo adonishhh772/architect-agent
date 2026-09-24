@@ -65,6 +65,10 @@ const AuditAnnotation = Annotation.Root({
     reducer: (left: Record<string, number>, right: Record<string, number>) => ({ ...left, ...right }),
     default: () => ({}),
   }),
+  readColumns: Annotation<Record<string, number>>({
+    reducer: (left: Record<string, number>, right: Record<string, number>) => ({ ...left, ...right }),
+    default: () => ({}),
+  }),
   evidenceNotes: Annotation<string[]>({
     reducer: (left: string[], right: string[]) => [...left, ...right],
     default: () => [],
@@ -268,10 +272,11 @@ function createCodeReaderNode(
         priorFindingKeys: state.findings.map((finding) => finding.stableKey),
         alreadyRead: new Set(state.pathsRead),
         readResume: state.readResume,
+        readColumns: state.readColumns,
       });
       const mergedRead = new Set([...state.pathsRead, ...result.pathsRead]);
       const stillUnread = listUnreadPaths(indexedPaths, mergedRead);
-      const continueReading = shouldContinueReading(result.trace.status, stillUnread.length);
+      const continueReading = shouldContinueReading(result.trace.status, stillUnread.length, state.readerRounds + 1, indexedPaths.length);
       return {
         ...specialistUpdate(result, state.architectureBrief),
         continueReading,
@@ -307,8 +312,14 @@ function routeAfterCodeReader(state: AuditGraphState): string {
   return state.continueReading ? AUDIT_AGENT.CODE_READER : AUDIT_AGENT.CARTOGRAPHER;
 }
 
-export function shouldContinueReading(status: string, unreadCount: number): boolean {
-  return status === AGENT_RUN_STATUS.COMPLETED && unreadCount > 0;
+export function shouldContinueReading(
+  status: string,
+  unreadCount: number,
+  readerRounds: number,
+  indexedFileCount = 0,
+): boolean {
+  const roundLimit = Math.max(AUDIT_LIMITS.MAX_READER_ROUNDS, indexedFileCount * AUDIT_LIMITS.WINDOWS_PER_FILE);
+  return status === AGENT_RUN_STATUS.COMPLETED && unreadCount > 0 && readerRounds < roundLimit;
 }
 
 function createVerifierNode(options: MultiAgentAuditOptions) {
@@ -354,6 +365,7 @@ function specialistUpdate(result: AuditSpecialistResult, currentBrief: string): 
     pathsRead: result.pathsRead,
     pathsPartial: result.pathsPartial,
     readResume: result.readResume ?? {},
+    readColumns: result.readColumns ?? {},
     evidenceNotes: result.evidenceNotes ?? [],
   };
 }

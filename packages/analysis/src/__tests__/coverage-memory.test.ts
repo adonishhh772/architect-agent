@@ -56,22 +56,35 @@ describe("buildAuditMemory", () => {
 });
 
 describe("readFileWindows", () => {
-  it("continues a long file after the first window", () => {
-    const lines = Array.from({ length: 300 }, (_unused, index) => `line ${index + 1}`);
+  it("continues a long file until every line has been sent", () => {
+    const lines = Array.from({ length: 40 }, (_unused, index) => `line ${index + 1} ${"x".repeat(80)}`);
     const context = {
       contents: new Map([["src/long.ts", lines.join("\n")]]),
       graph: { nodes: [], edges: [] },
     };
-    const first = readFileWindows(context, ["src/long.ts"], {});
-    expect(first.partialPaths).toEqual(["src/long.ts"]);
-    expect(first.resumeLines["src/long.ts"]).toBe(221);
-    expect(first.finishedPaths).toEqual([]);
-    const second = readFileWindows(context, ["src/long.ts"], first.resumeLines);
-    expect(second.finishedPaths).toEqual(["src/long.ts"]);
-    expect(second.partialPaths).toEqual([]);
-    expect(second.resumeLines["src/long.ts"]).toBe(0);
+    let reconstructed = "";
+    let resumeLines: Record<string, number> = {};
+    let resumeColumns: Record<string, number> = {};
+    let finished = false;
+    for (let step = 0; step < 30 && !finished; step += 1) {
+      const continued = (resumeColumns["src/long.ts"] ?? 0) > 0;
+      const window = readFileWindows(context, ["src/long.ts"], resumeLines, resumeColumns);
+      const source = sourceFromObservation(window.observations[0]?.text ?? "");
+      reconstructed = continued ? `${reconstructed}${source}` : `${reconstructed}${reconstructed.length > 0 ? "\n" : ""}${source}`;
+      resumeLines = window.resumeLines;
+      resumeColumns = window.resumeColumns;
+      finished = window.finishedPaths.includes("src/long.ts");
+    }
+    expect(finished).toBe(true);
+    expect(reconstructed).toBe(lines.join("\n"));
   });
 });
+
+function sourceFromObservation(text: string): string {
+  const inner = text.replace("[UNTRUSTED_REPOSITORY_DATA_BEGIN]\n", "").replace("\n[UNTRUSTED_REPOSITORY_DATA_END]", "");
+  const newline = inner.indexOf("\n");
+  return newline === -1 ? "" : inner.slice(newline + 1);
+}
 
 describe("describeUnopenedFiles", () => {
   it("records indexed files a specialist did not open", () => {

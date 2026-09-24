@@ -11,6 +11,7 @@ mermaid.initialize({
 
 interface MermaidDiagramProps {
   chart: string;
+  fallbackChart?: string;
   onSelectLabel?: (label: string) => void;
 }
 
@@ -18,7 +19,7 @@ const MERMAID_RENDER_ERROR = "The architecture diagram could not be drawn.";
 const SVG_FILENAME = "architecture-map.svg";
 const PNG_FILENAME = "architecture-map.png";
 
-export function MermaidDiagram({ chart, onSelectLabel }: MermaidDiagramProps): JSX.Element {
+export function MermaidDiagram({ chart, fallbackChart, onSelectLabel }: MermaidDiagramProps): JSX.Element {
   const reactId = useId().replace(/:/g, "");
   const containerRef = useRef<HTMLDivElement>(null);
   const [svg, setSvg] = useState("");
@@ -31,12 +32,14 @@ export function MermaidDiagram({ chart, onSelectLabel }: MermaidDiagramProps): J
       setIsLoading(true);
       setError(null);
       try {
-        const rendered = await mermaid.render(`architecture-map-${reactId}`, chart);
+        const renderId = `architecture-map-${reactId}`;
+        const rendered = await renderMermaidChart(renderId, chart, fallbackChart);
         if (!cancelled) {
-          setSvg(rendered.svg);
+          setSvg(rendered);
           setError(null);
         }
       } catch (caught) {
+        removeMermaidHost(`architecture-map-${reactId}`);
         if (!cancelled) {
           setSvg("");
           setError(caught instanceof Error ? caught.message : MERMAID_RENDER_ERROR);
@@ -51,7 +54,7 @@ export function MermaidDiagram({ chart, onSelectLabel }: MermaidDiagramProps): J
     return () => {
       cancelled = true;
     };
-  }, [chart, reactId]);
+  }, [chart, fallbackChart, reactId]);
 
   useEffect(() => {
     const root = containerRef.current;
@@ -103,6 +106,24 @@ export function MermaidDiagram({ chart, onSelectLabel }: MermaidDiagramProps): J
       />
     </div>
   );
+}
+
+async function renderMermaidChart(renderId: string, chart: string, fallbackChart: string | undefined): Promise<string> {
+  try {
+    const rendered = await mermaid.render(renderId, chart);
+    return rendered.svg;
+  } catch (caught) {
+    removeMermaidHost(renderId);
+    if (!fallbackChart || fallbackChart === chart) {
+      throw caught;
+    }
+    const fallback = await mermaid.render(`${renderId}-fallback`, fallbackChart);
+    return fallback.svg;
+  }
+}
+
+function removeMermaidHost(renderId: string): void {
+  document.getElementById(renderId)?.remove();
 }
 
 function bindNodeClicks(root: HTMLDivElement, onSelectLabel: (label: string) => void): () => void {

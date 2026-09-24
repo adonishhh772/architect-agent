@@ -50,12 +50,20 @@ export const SOURCE_LANGUAGE = {
   JAVASCRIPT: "javascript",
   PYTHON: "python",
   GO: "go",
+  HTML: "html",
+  YAML: "yaml",
+  SQL: "sql",
+  SHELL: "shell",
 } as const;
 
 export const SOURCE_LANGUAGE_LIST = [
   SOURCE_LANGUAGE.JAVASCRIPT,
   SOURCE_LANGUAGE.PYTHON,
   SOURCE_LANGUAGE.GO,
+  SOURCE_LANGUAGE.HTML,
+  SOURCE_LANGUAGE.YAML,
+  SOURCE_LANGUAGE.SQL,
+  SOURCE_LANGUAGE.SHELL,
 ] as const;
 
 export const CWE_ID = {

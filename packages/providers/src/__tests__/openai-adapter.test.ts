@@ -32,9 +32,28 @@ describe("readCompletionText", () => {
 describe("createOpenAiAdapter", () => {
   it("sends max_completion_tokens and omits temperature for o3", async () => {
     const captured = await captureChatBody("o3");
-    expect(captured.max_completion_tokens).toBe(128);
+    expect(captured.max_completion_tokens).toBe(4_224);
+    expect(captured.reasoning_effort).toBe("medium");
     expect(captured.max_tokens).toBeUndefined();
     expect(captured.temperature).toBeUndefined();
+  });
+
+  it("adds the high reasoning budget for gpt-5", async () => {
+    const captured = await captureChatBody("gpt-5", "high");
+    expect(captured.max_completion_tokens).toBe(8_320);
+    expect(captured.reasoning_effort).toBe("high");
+  });
+
+  it("reserves answer tokens for DeepSeek reasoner", async () => {
+    const captured = await captureChatBody("deepseek-v4-pro", "high");
+    expect(captured.max_tokens).toBe(8_320);
+    expect(captured.reasoning_effort).toBe("high");
+    expect(captured.temperature).toBeUndefined();
+  });
+
+  it("reads an answer split across content parts", () => {
+    expect(readCompletionText([{ text: "{\"findings\":[]}" }], null)).toBe("{\"findings\":[]}");
+    expect(readCompletionText(null, "", "{\"findings\":[]}")).toBe("{\"findings\":[]}");
   });
 
   it("sends max_tokens and temperature for gpt-4o", async () => {
@@ -45,7 +64,7 @@ describe("createOpenAiAdapter", () => {
   });
 });
 
-async function captureChatBody(modelId: string): Promise<Record<string, unknown>> {
+async function captureChatBody(modelId: string, reasoningEffort?: "low" | "medium" | "high"): Promise<Record<string, unknown>> {
   let body: Record<string, unknown> = {};
   const fetchFn: FetchFn = (_input, init) => {
     body = JSON.parse(String(init?.body)) as Record<string, unknown>;
@@ -60,7 +79,7 @@ async function captureChatBody(modelId: string): Promise<Record<string, unknown>
       ),
     );
   };
-  const adapter = createOpenAiAdapter(settingsFor(modelId), fetchFn);
+  const adapter = createOpenAiAdapter(settingsFor(modelId, reasoningEffort), fetchFn);
   await adapter.complete("test-key", {
     messages: [{ role: "user", content: "review" }],
     maxOutputTokens: 128,
@@ -68,10 +87,11 @@ async function captureChatBody(modelId: string): Promise<Record<string, unknown>
   return body;
 }
 
-function settingsFor(modelId: string): ProviderSettings {
+function settingsFor(modelId: string, reasoningEffort?: "low" | "medium" | "high"): ProviderSettings {
   return {
     providerId: PROVIDER_ID.OPENAI,
     modelId,
+    reasoningEffort,
     customEndpointConfirmed: false,
     requestTimeoutMs: 1_000,
     maxConcurrency: 1,

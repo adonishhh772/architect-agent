@@ -52,6 +52,7 @@ export function buildReportAccordionItems(input: ReportAccordionInput): ReportAc
         <ArchitectureMapSection
           report={input.report}
           chart={input.report.architectureMermaid ?? graphToMermaid(input.report.graph)}
+          fallbackChart={graphToMermaid(input.report.graph)}
           selectedLabel={input.selectedMapLabel}
           onSelectLabel={input.onSelectMapLabel}
           onSelectFinding={input.onSelectFinding}
@@ -158,12 +159,14 @@ interface CoverageExportProps {
 function ArchitectureMapSection({
   report,
   chart,
+  fallbackChart,
   selectedLabel,
   onSelectLabel,
   onSelectFinding,
 }: {
   report: AnalysisReport;
   chart: string;
+  fallbackChart: string;
   selectedLabel: string | undefined;
   onSelectLabel: (label: string) => void;
   onSelectFinding: (findingId: string) => void;
@@ -171,7 +174,7 @@ function ArchitectureMapSection({
   const related = selectedLabel ? findingsForMapLabel(report.graph, report.findings, selectedLabel) : [];
   return (
     <div className="space-y-4">
-      <MermaidDiagram chart={chart} onSelectLabel={onSelectLabel} />
+      <MermaidDiagram chart={chart} fallbackChart={fallbackChart} onSelectLabel={onSelectLabel} />
       <MapSelection related={related} selectedLabel={selectedLabel} onSelectFinding={onSelectFinding} />
     </div>
   );

@@ -50,15 +50,24 @@ export function graphToMermaid(graph: ArchitectureGraph): string {
   return renderDiagram(selected, graph.edges);
 }
 
+const MERMAID_HEADER = /^(?:flowchart|graph)\s+(?:TD|TB|LR|RL)\s*$/i;
+const MERMAID_NODE = /^[A-Za-z][\w-]*\["[^"\n]*"\]$/;
+const MERMAID_EDGE = /^[A-Za-z][\w-]*\s+(?:-->|---)(?:\|[^|\n]{0,80}\|)?\s+[A-Za-z][\w-]*$/;
+
 export function sanitizeArchitectureMermaid(value: string): string | undefined {
   const stripped = value.replace(/^```(?:mermaid)?\s*/i, "").replace(/```\s*$/i, "").trim();
-  if (!/^(?:flowchart|graph)\s+/i.test(stripped)) {
+  const lines = stripped.split("\n").map((line) => line.trim()).filter((line) => line.length > 0);
+  const header = lines[0];
+  if (!header || !MERMAID_HEADER.test(header) || lines.length > 80) {
     return undefined;
   }
-  if (stripped.length > 12_000) {
-    return stripped.slice(0, 12_000);
+  for (let index = 1; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    if (!MERMAID_NODE.test(line) && !MERMAID_EDGE.test(line)) {
+      return undefined;
+    }
   }
-  return stripped;
+  return [header, ...lines.slice(1)].join("\n");
 }
 
 function renderDiagram(nodes: ArchitectureGraph["nodes"], edges: ArchitectureGraph["edges"]): string {
@@ -178,5 +187,5 @@ function priorityOf(kind: string): number {
 }
 
 function escapeMermaidLabel(label: string): string {
-  return label.replace(/["[\]|]/g, " ").replace(/\s+/g, " ").trim().slice(0, LABEL_LIMIT);
+  return label.replace(/["[\]|(){}#<>;]/g, " ").replace(/\s+/g, " ").trim().slice(0, LABEL_LIMIT);
 }

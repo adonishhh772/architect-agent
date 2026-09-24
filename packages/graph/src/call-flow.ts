@@ -6,7 +6,7 @@ import {
   type GraphEdge,
   type GraphNode,
 } from "@sentinel/schema";
-import { isGoPath, isJavaScriptPath, isPythonPath } from "./source-language.js";
+import { isGoPath, isPythonPath, isReviewedTextPath } from "./source-language.js";
 
 export interface ObservedDataFlowStep {
   role: (typeof DATA_FLOW_ROLE)[keyof typeof DATA_FLOW_ROLE];
@@ -120,7 +120,7 @@ interface FunctionSpan {
 }
 
 function isSourceFile(path: string): boolean {
-  return isJavaScriptPath(path) || isPythonPath(path) || isGoPath(path);
+  return isReviewedTextPath(path);
 }
 
 function readFunctionName(path: string, line: string): string | null {

@@ -8,18 +8,36 @@ import type {
   FetchFn,
   ModelInfo,
 } from "./types.js";
+import { completionTokenLimit, modelReservesReasoning, thinkingTokensForEffort } from "./completion-budget.js";
 import { ProviderError } from "./types.js";
 
 const DEFAULT_OPENAI_BASE = "https://api.openai.com/v1";
 const COMPLETION_TOKEN_MODEL = /^(?:o1|o3|o4|gpt-4\.1|gpt-5)(?:$|[-.])/i;
 const DEFAULT_TEMPERATURE = 0.2;
 
-export function readCompletionText(content: string | null | undefined, reasoningContent: string | null | undefined): string {
-  const answer = content?.trim() ?? "";
+type OpenAiContent = string | null | undefined | Array<{ text?: string | null }>;
+
+export function readCompletionText(
+  content: OpenAiContent,
+  reasoningContent: string | null | undefined,
+  reasoning: string | null | undefined = undefined,
+): string {
+  const answer = flattenOpenAiContent(content).trim();
   if (answer) {
     return answer;
   }
-  return reasoningContent?.trim() ?? "";
+  const thought = reasoningContent?.trim() || reasoning?.trim() || "";
+  return thought;
+}
+
+function flattenOpenAiContent(content: OpenAiContent): string {
+  if (typeof content === "string") {
+    return content;
+  }
+  if (!content) {
+    return "";
+  }
+  return content.map((part) => part.text ?? "").join("");
 }
 
 export function openAiModelUsesCompletionTokens(modelId: string): boolean {
@@ -90,16 +108,21 @@ export function createOpenAiAdapter(
       request: CompletionRequest,
     ): Promise<CompletionResult> {
       const usesCompletionTokens = openAiModelUsesCompletionTokens(settings.modelId);
+      const reservesReasoning = modelReservesReasoning(settings.modelId);
+      const thinkingTokens = reservesReasoning ? thinkingTokensForEffort(settings.reasoningEffort) : 0;
       const body: Record<string, unknown> = {
         model: settings.modelId,
         messages: request.messages,
       };
-      if (!usesCompletionTokens) {
+      if (!usesCompletionTokens && !reservesReasoning) {
         body.temperature = request.temperature ?? DEFAULT_TEMPERATURE;
       }
-      if (request.maxOutputTokens) {
+      if (reservesReasoning) {
+        body.reasoning_effort = settings.reasoningEffort ?? "medium";
+      }
+      if (request.maxOutputTokens || reservesReasoning) {
         const tokenField = usesCompletionTokens ? "max_completion_tokens" : "max_tokens";
-        body[tokenField] = request.maxOutputTokens;
+        body[tokenField] = completionTokenLimit(request.maxOutputTokens, thinkingTokens);
       }
       if (request.jsonSchema) {
         body.response_format = { type: "json_object" };
@@ -126,7 +149,11 @@ export function createOpenAiAdapter(
 
       const data = (await response.json()) as {
         choices?: Array<{
-          message?: { content?: string | null; reasoning_content?: string | null };
+          message?: {
+            content?: string | null | Array<{ text?: string | null }>;
+            reasoning_content?: string | null;
+            reasoning?: string | null;
+          };
           finish_reason?: string;
         }>;
         usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
@@ -134,7 +161,7 @@ export function createOpenAiAdapter(
       };
 
       const message = data.choices?.[0]?.message;
-      const content = readCompletionText(message?.content, message?.reasoning_content);
+      const content = readCompletionText(message?.content, message?.reasoning_content, message?.reasoning);
       if (!content) {
         throw new ProviderError(providerId, "malformed_response", "Empty completion");
       }

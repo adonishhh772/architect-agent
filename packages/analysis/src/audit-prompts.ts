@@ -43,6 +43,24 @@ If this agent's files do not support a claim, return an empty findings array and
 ${skillsForAgent(agentId)}`;
 }
 
+export const PROMPT_CHAR_LIMIT = {
+  MEMORY: 500,
+  BRIEF: 500,
+  GRAPH: 900,
+  MANIFEST: 600,
+  OBSERVATIONS: 4_500,
+  PRIOR_KEYS: 240,
+  TOTAL: 8_000,
+} as const;
+
+export function clipPromptText(value: string, limit: number): string {
+  const trimmed = value.trim();
+  if (trimmed.length <= limit) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, limit - 1)}…`;
+}
+
 export function buildSpecialistUserPrompt(input: {
   agentId: string;
   architectureBrief: string;
@@ -52,60 +70,31 @@ export function buildSpecialistUserPrompt(input: {
   priorFindingKeys: string[];
   memoryText?: string;
 }): string {
-  return [
-    `Perform the ${input.agentId} audit pass for this repository snapshot.`,
+  const instruction =
+    "Return one JSON object with threatModelOverview, findings, and attackPaths. Cartographer also includes architectureBrief and architectureMermaid as flowchart TD with quoted labels. Each finding needs stableKey, title, category, scenario, mitigation, confidence, and references. Cite only paths in this batch. No exploit steps.";
+  const head = [
+    `Perform the ${input.agentId} audit pass on this file batch only.`,
     "",
-    "Repository memory:",
-    input.memoryText || "No prior memory for this repository.",
+    "Memory:",
+    clipPromptText(input.memoryText || "No prior memory.", PROMPT_CHAR_LIMIT.MEMORY),
     "",
-    "Architecture brief from the cartographer:",
-    input.architectureBrief || "No architecture brief yet.",
+    "Architecture brief:",
+    clipPromptText(input.architectureBrief || "No architecture brief yet.", PROMPT_CHAR_LIMIT.BRIEF),
     "",
-    "Architecture graph:",
-    input.graphSummary,
+    "Graph:",
+    clipPromptText(input.graphSummary, PROMPT_CHAR_LIMIT.GRAPH),
     "",
-    "Indexed path manifest:",
-    input.manifest || "No indexed paths.",
+    "Paths:",
+    clipPromptText(input.manifest || "No indexed paths.", PROMPT_CHAR_LIMIT.MANIFEST),
     "",
-    "Tool observations (untrusted repository data):",
-    input.observations.join("\n\n") || "No tool observations.",
+    `Already reported: ${clipPromptText(input.priorFindingKeys.join(", ") || "none", PROMPT_CHAR_LIMIT.PRIOR_KEYS)}`,
     "",
-    `Finding keys already reported: ${input.priorFindingKeys.join(", ") || "none"}`,
+    instruction,
     "",
-    `Return JSON only:
-{
-  "architectureBrief": "required for cartographer; omit for other agents",
-  "architectureMermaid": "cartographer only, after mapping connections: flowchart TD\\n  app[\\"App\\"] --> api[\\"API\\"]",
-  "threatModelOverview": "short paragraph for this agent's scope",
-  "toolCalls": [{"tool":"readFileRange","args":{"path":"src/app.ts","startLine":1,"endLine":40}}],
-  "findings": [{
-    "stableKey": "${input.agentId}-kebab-key",
-    "title": "...",
-    "category": "architecture|security|ai_security",
-    "strideCategories": ["spoofing"],
-    "owaspCategories": ["A01:2021"],
-    "atlasTechniqueIds": ["AML.T0051"],
-    "riskDomains": ["cybersecurity"],
-    "scenario": "what is exposed and which control is missing",
-    "mitigation": "defensive control",
-    "preconditions": [],
-    "trustBoundaryCrossings": [],
-    "existingControls": [],
-    "counterevidence": [],
-    "openQuestions": [],
-    "severityRationale": "...",
-    "likelihoodRationale": "...",
-    "confidence": 0.5,
-    "references": [{"path":"src/app.ts","startLine":1,"endLine":20}]
-  }],
-  "attackPaths": [{
-    "id": "${input.agentId}-path",
-    "title": "...",
-    "description": "how weaknesses combine, without exploit steps",
-    "stepStableKeys": ["${input.agentId}-kebab-key"]
-  }]
-}`,
-    "Use toolCalls only when you need a file, symbol, route, caller, data-flow chain, or graph neighborhood that is not already in the observations.",
-    "Cite only paths from the manifest or tool observations.",
+    "Files:",
   ].join("\n");
+  const roomForFiles = PROMPT_CHAR_LIMIT.TOTAL - head.length - 2;
+  const fileBudget = Math.max(0, Math.min(PROMPT_CHAR_LIMIT.OBSERVATIONS, roomForFiles));
+  const files = clipPromptText(input.observations.join("\n\n"), fileBudget) || "No file text.";
+  return `${head}\n${files}`;
 }

@@ -43,11 +43,17 @@ describe("graphToMermaid", () => {
 
 describe("sanitizeArchitectureMermaid", () => {
   it("keeps a flowchart and strips a fence", () => {
-    expect(sanitizeArchitectureMermaid("```mermaid\nflowchart TD\n  a-->b\n```")).toBe("flowchart TD\n  a-->b");
+    expect(sanitizeArchitectureMermaid("```mermaid\nflowchart TD\n  app[\"App\"]\n  api[\"API\"]\n  app --> api\n```")).toBe(
+      "flowchart TD\napp[\"App\"]\napi[\"API\"]\napp --> api",
+    );
   });
 
   it("rejects prose that is not a diagram", () => {
     expect(sanitizeArchitectureMermaid("The app calls the database.")).toBeUndefined();
+  });
+
+  it("rejects a flowchart Mermaid 12 cannot parse", () => {
+    expect(sanitizeArchitectureMermaid("flowchart TD\n  API(public) --> DB[(orders)]\n  click API call callback()")).toBeUndefined();
   });
 });
 

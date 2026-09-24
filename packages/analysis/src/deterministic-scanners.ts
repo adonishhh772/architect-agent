@@ -306,6 +306,18 @@ function languageForPath(path: string): Finding["language"] {
   if (path.endsWith(".go")) {
     return SOURCE_LANGUAGE.GO;
   }
+  if (/\.html?$/.test(path)) {
+    return SOURCE_LANGUAGE.HTML;
+  }
+  if (/\.ya?ml$/.test(path)) {
+    return SOURCE_LANGUAGE.YAML;
+  }
+  if (path.endsWith(".sql")) {
+    return SOURCE_LANGUAGE.SQL;
+  }
+  if (/\.(sh|bash)$/.test(path)) {
+    return SOURCE_LANGUAGE.SHELL;
+  }
   return undefined;
 }
 

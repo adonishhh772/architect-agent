@@ -8,15 +8,18 @@ import { sanitizeRepositorySnippetForPrompt } from "./prompt-safety.js";
 export const AUDIT_LIMITS = {
   SPECIALIST_ROUNDS: 2,
   TOOL_CALLS_PER_ROUND: 4,
-  PREVIEW_LINES: 120,
-  FULL_READ_LINES: 220,
-  PACK_FILES: 8,
-  READER_BATCH_FILES: 12,
-  READER_BATCH_CHARS: 28_000,
-  MANIFEST_PATHS: 800,
-  GRAPH_NODES_IN_PROMPT: 80,
-  GRAPH_EDGES_IN_PROMPT: 60,
-  TOOL_RESULT_CHARS: 4_000,
+  PREVIEW_LINES: 40,
+  FULL_READ_LINES: 60,
+  PACK_FILES: 3,
+  READER_BATCH_FILES: 3,
+  READER_BATCH_CHARS: 4_500,
+  MANIFEST_PATHS: 24,
+  READER_MANIFEST_PATHS: 8,
+  MAX_READER_ROUNDS: 24,
+  WINDOWS_PER_FILE: 40,
+  GRAPH_NODES_IN_PROMPT: 16,
+  GRAPH_EDGES_IN_PROMPT: 12,
+  TOOL_RESULT_CHARS: 1_200,
 } as const;
 
 const AGENT_PATH_KEYWORDS: Record<(typeof AUDIT_AGENT)[keyof typeof AUDIT_AGENT], readonly string[]> = {
@@ -113,6 +116,51 @@ export interface FileWindowRead {
   finishedPaths: string[];
   partialPaths: string[];
   resumeLines: Record<string, number>;
+  resumeColumns: Record<string, number>;
+}
+
+export function nextLineWindow(
+  content: string,
+  startLine: number,
+  startColumn: number,
+  maxSourceChars: number,
+): { endLine: number; nextLine: number; nextColumn: number; source: string; done: boolean } {
+  const lines = content.length === 0 ? [] : content.split("\n");
+  if (lines.length === 0 || startLine > lines.length) {
+    return { endLine: startLine, nextLine: 0, nextColumn: 0, source: "", done: true };
+  }
+  const included: string[] = [];
+  let used = 0;
+  let lineNumber = startLine;
+  let column = Math.max(0, startColumn);
+  let nextLine = startLine;
+  let nextColumn = column;
+  while (lineNumber <= lines.length && used < maxSourceChars) {
+    const line = lines[lineNumber - 1] ?? "";
+    const rest = line.slice(column);
+    const room = maxSourceChars - used;
+    if (rest.length <= room) {
+      included.push(column === 0 ? line : rest);
+      used += rest.length + 1;
+      lineNumber += 1;
+      column = 0;
+      nextLine = lineNumber;
+      nextColumn = 0;
+      continue;
+    }
+    included.push(rest.slice(0, room));
+    nextLine = lineNumber;
+    nextColumn = column + room;
+    used = maxSourceChars;
+  }
+  const done = nextColumn === 0 && nextLine > lines.length;
+  return {
+    endLine: done ? lines.length : lineNumber,
+    nextLine: done ? 0 : nextLine,
+    nextColumn,
+    source: included.join("\n"),
+    done,
+  };
 }
 
 export function readCoveragePreviews(
@@ -127,41 +175,34 @@ export function readFileWindows(
   context: InvestigationToolContext,
   paths: string[],
   resumeLines: Readonly<Record<string, number>>,
+  resumeColumns: Readonly<Record<string, number>> = {},
 ): FileWindowRead {
   const observations: ToolObservation[] = [];
   const finishedPaths: string[] = [];
   const partialPaths: string[] = [];
   const nextResume: Record<string, number> = {};
+  const nextColumns: Record<string, number> = {};
   for (const path of paths) {
     const content = context.contents.get(path) ?? "";
-    const lineCount = content.length === 0 ? 0 : content.split("\n").length;
-    const startLine = resumeLines[path] ?? 1;
-    if (lineCount === 0 || startLine > lineCount) {
+    const startLine = resumeLines[path] && resumeLines[path] > 0 ? resumeLines[path] : 1;
+    const window = nextLineWindow(content, startLine, resumeColumns[path] ?? 0, AUDIT_LIMITS.TOOL_RESULT_CHARS);
+    nextResume[path] = window.nextLine;
+    nextColumns[path] = window.nextColumn;
+    if (window.done && window.source.length === 0) {
       finishedPaths.push(path);
-      nextResume[path] = 0;
       continue;
     }
-    const endLine = Math.min(lineCount, startLine + AUDIT_LIMITS.FULL_READ_LINES - 1);
-    const result = executeInvestigationTool(
-      ToolName.READ_FILE_RANGE,
-      { path, startLine, endLine },
-      context,
-    );
     observations.push({
       path,
-      text: sanitizeRepositorySnippetForPrompt(
-        JSON.stringify(result).slice(0, AUDIT_LIMITS.TOOL_RESULT_CHARS),
-      ),
+      text: sanitizeRepositorySnippetForPrompt(`${path}:${startLine}-${window.endLine}\n${window.source}`),
     });
-    if (endLine >= lineCount) {
+    if (window.done) {
       finishedPaths.push(path);
-      nextResume[path] = 0;
     } else {
       partialPaths.push(path);
-      nextResume[path] = endLine + 1;
     }
   }
-  return { observations, finishedPaths, partialPaths, resumeLines: nextResume };
+  return { observations, finishedPaths, partialPaths, resumeLines: nextResume, resumeColumns: nextColumns };
 }
 
 const SPECIALIST_PACK_AGENTS = new Set<string>([

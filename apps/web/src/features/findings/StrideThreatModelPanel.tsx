@@ -1,7 +1,8 @@
 import type { AnalysisReport, Finding } from "@sentinel/schema";
 import { STRIDE_CATEGORY } from "@sentinel/schema";
 import { Shield } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { splitSummarySentences } from "./strideSummary";
 
 const STRIDE_LABELS: Record<(typeof STRIDE_CATEGORY)[keyof typeof STRIDE_CATEGORY], string> = {
   [STRIDE_CATEGORY.SPOOFING]: "Spoofing",
@@ -12,6 +13,8 @@ const STRIDE_LABELS: Record<(typeof STRIDE_CATEGORY)[keyof typeof STRIDE_CATEGOR
   [STRIDE_CATEGORY.ELEVATION_OF_PRIVILEGE]: "Elevation of privilege",
 };
 
+const SECTION_SCROLL = "max-h-64 overflow-y-auto pr-2";
+
 interface StrideThreatModelPanelProps {
   report: AnalysisReport;
   onSelectFinding: (findingId: string) => void;
@@ -21,23 +24,13 @@ export function StrideThreatModelPanel({
   report,
   onSelectFinding,
 }: StrideThreatModelPanelProps): JSX.Element {
-  const findingsByStride = useMemo(() => {
-    const grouped = new Map<string, Finding[]>();
-    for (const strideKey of Object.values(STRIDE_CATEGORY)) {
-      grouped.set(strideKey, []);
-    }
-    for (const finding of report.findings) {
-      if (finding.strideCategories.length === 0) {
-        continue;
-      }
-      for (const strideCategory of finding.strideCategories) {
-        const bucket = grouped.get(strideCategory) ?? [];
-        bucket.push(finding);
-        grouped.set(strideCategory, bucket);
-      }
-    }
-    return grouped;
-  }, [report.findings]);
+  const findingsByStride = useMemo(() => groupFindingsByStride(report.findings), [report.findings]);
+  const sentences = splitSummarySentences(report.executiveSummary);
+  const [openStride, setOpenStride] = useState<string>(STRIDE_CATEGORY.SPOOFING);
+
+  function toggleStride(strideKey: string): void {
+    setOpenStride((current) => (current === strideKey ? "" : strideKey));
+  }
 
   return (
     <section className="md-elevated-card space-y-4" data-testid="stride-threat-model">
@@ -45,68 +38,142 @@ export function StrideThreatModelPanel({
         <Shield className="h-5 w-5 text-[var(--color-neon-pink)]" aria-hidden />
         <h3 className="text-lg font-semibold text-[var(--md-on-surface)]">STRIDE threat model</h3>
       </div>
-      <p className="text-sm leading-relaxed text-[var(--md-on-surface-variant)]">
-        {report.executiveSummary}
-      </p>
-      <div className="grid gap-4 lg:grid-cols-2">
-        {Object.values(STRIDE_CATEGORY).map((strideKey) => {
-          const findings = findingsByStride.get(strideKey) ?? [];
-          return (
-            <article
-              key={strideKey}
-              className="rounded-xl border border-[var(--md-outline)]/30 bg-[var(--md-surface-container-high)]/50 p-4"
-              data-testid={`stride-section-${strideKey}`}
-            >
-              <h4 className="text-sm font-semibold uppercase tracking-wide text-[var(--md-primary)]">
-                {STRIDE_LABELS[strideKey]}
-              </h4>
-              {findings.length === 0 ? (
-                <p className="mt-2 text-xs text-[var(--md-on-surface-variant)]">
-                  No mapped threats in this category for the current evidence set.
-                </p>
-              ) : (
-                <ul className="mt-3 space-y-3">
-                  {findings.map((finding) => (
-                    <li key={`${strideKey}-${finding.id}`}>
-                      <button
-                        type="button"
-                        className="w-full rounded-lg border border-transparent px-2 py-2 text-left transition hover:border-[var(--md-primary)]/30 hover:bg-[var(--md-primary-container)]/20"
-                        onClick={() => onSelectFinding(finding.id)}
-                      >
-                        <p className="text-sm font-medium text-[var(--md-on-surface)]">{finding.title}</p>
-                        <p className="mt-1 line-clamp-3 text-xs leading-relaxed text-[var(--md-on-surface-variant)]">
-                          {finding.scenario}
-                        </p>
-                        {finding.trustBoundaryCrossings.length > 0 && (
-                          <p className="mt-1 text-[10px] text-[var(--md-on-surface-variant)]">
-                            Boundaries: {finding.trustBoundaryCrossings.join(" · ")}
-                          </p>
-                        )}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </article>
-          );
-        })}
+      <div className={SECTION_SCROLL} data-testid="stride-summary">
+        <ol className="list-decimal space-y-3 pl-5 text-sm leading-relaxed text-[var(--md-on-surface-variant)]">
+          {sentences.map((sentence) => (
+            <li key={sentence}>{sentence}</li>
+          ))}
+        </ol>
+      </div>
+      <div className="space-y-3">
+        {Object.values(STRIDE_CATEGORY).map((strideKey) => (
+          <StrideCategory
+            key={strideKey}
+            strideKey={strideKey}
+            findings={findingsByStride.get(strideKey) ?? []}
+            open={openStride === strideKey}
+            onToggle={toggleStride}
+            onSelectFinding={onSelectFinding}
+          />
+        ))}
       </div>
       {report.attackPaths.length > 0 && (
-        <div>
-          <h4 className="text-sm font-semibold text-[var(--md-on-surface)]">Attack paths</h4>
-          <ul className="mt-2 space-y-2">
-            {report.attackPaths.map((path) => (
-              <li
-                key={path.id}
-                className="rounded-lg border border-[var(--md-outline)]/25 px-3 py-2 text-sm text-[var(--md-on-surface-variant)]"
-              >
-                <p className="font-medium text-[var(--md-on-surface)]">{path.title}</p>
-                <p className="mt-1 text-xs leading-relaxed">{path.description}</p>
-              </li>
-            ))}
-          </ul>
-        </div>
+        <AttackPathList paths={report.attackPaths} />
       )}
     </section>
+  );
+}
+
+function groupFindingsByStride(findings: Finding[]): Map<string, Finding[]> {
+  const grouped = new Map<string, Finding[]>();
+  for (const strideKey of Object.values(STRIDE_CATEGORY)) {
+    grouped.set(strideKey, []);
+  }
+  for (const finding of findings) {
+    for (const strideCategory of finding.strideCategories) {
+      const bucket = grouped.get(strideCategory) ?? [];
+      bucket.push(finding);
+      grouped.set(strideCategory, bucket);
+    }
+  }
+  return grouped;
+}
+
+function StrideCategory({
+  strideKey,
+  findings,
+  open,
+  onToggle,
+  onSelectFinding,
+}: {
+  strideKey: (typeof STRIDE_CATEGORY)[keyof typeof STRIDE_CATEGORY];
+  findings: Finding[];
+  open: boolean;
+  onToggle: (strideKey: string) => void;
+  onSelectFinding: (findingId: string) => void;
+}): JSX.Element {
+  function handleToggle(): void {
+    onToggle(strideKey);
+  }
+
+  return (
+    <article className="rounded-xl border border-[var(--md-outline)]/30 bg-[var(--md-surface-container-high)]/50" data-testid={`stride-section-${strideKey}`}>
+      <h4>
+        <button
+          type="button"
+          className="flex w-full items-center justify-between px-4 py-3 text-left"
+          aria-expanded={open}
+          data-testid={`stride-toggle-${strideKey}`}
+          onClick={handleToggle}
+        >
+          <span className="text-sm font-semibold uppercase tracking-wide text-[var(--md-primary)]">
+            {STRIDE_LABELS[strideKey]}
+            <span className="ml-2 font-normal normal-case tracking-normal text-[var(--md-on-surface-variant)]">
+              {findings.length}
+            </span>
+          </span>
+        </button>
+      </h4>
+      {open && (
+        <div className={`${SECTION_SCROLL} border-t border-[var(--md-outline)]/20 px-4 py-3`}>
+          {findings.length === 0 ? (
+            <p className="text-xs text-[var(--md-on-surface-variant)]">No mapped threats in this category for the current evidence set.</p>
+          ) : (
+            <ol className="list-decimal space-y-3 pl-5">
+              {findings.map((finding) => (
+                <StrideFinding key={`${strideKey}-${finding.id}`} finding={finding} onSelectFinding={onSelectFinding} />
+              ))}
+            </ol>
+          )}
+        </div>
+      )}
+    </article>
+  );
+}
+
+function StrideFinding({
+  finding,
+  onSelectFinding,
+}: {
+  finding: Finding;
+  onSelectFinding: (findingId: string) => void;
+}): JSX.Element {
+  function handleSelect(): void {
+    onSelectFinding(finding.id);
+  }
+
+  return (
+    <li>
+      <button type="button" className="w-full rounded-lg px-2 py-2 text-left hover:bg-[var(--md-primary-container)]/20" onClick={handleSelect}>
+        <p className="text-sm font-medium text-[var(--md-on-surface)]">{finding.title}</p>
+        <p className="mt-1 text-xs leading-relaxed text-[var(--md-on-surface-variant)]">{finding.scenario}</p>
+      </button>
+    </li>
+  );
+}
+
+function AttackPathList({ paths }: { paths: AnalysisReport["attackPaths"] }): JSX.Element {
+  const [open, setOpen] = useState(true);
+
+  function handleToggle(): void {
+    setOpen((current) => !current);
+  }
+
+  return (
+    <div className="rounded-xl border border-[var(--md-outline)]/30" data-testid="stride-attack-paths">
+      <button type="button" className="w-full px-4 py-3 text-left text-sm font-semibold text-[var(--md-on-surface)]" aria-expanded={open} onClick={handleToggle}>
+        Attack paths
+      </button>
+      {open && (
+        <ol className={`${SECTION_SCROLL} list-decimal space-y-3 border-t border-[var(--md-outline)]/20 px-4 py-3 pl-9`}>
+          {paths.map((path) => (
+            <li key={path.id} className="text-sm text-[var(--md-on-surface-variant)]">
+              <p className="font-medium text-[var(--md-on-surface)]">{path.title}</p>
+              <p className="mt-1 text-xs leading-relaxed">{path.description}</p>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
   );
 }

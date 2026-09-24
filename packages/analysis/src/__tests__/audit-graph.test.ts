@@ -50,9 +50,11 @@ describe("selectPathsForAgent", () => {
 
 describe("shouldContinueReading", () => {
   it("keeps reading while indexed files are still unread", () => {
-    expect(shouldContinueReading(AGENT_RUN_STATUS.COMPLETED, 3)).toBe(true);
-    expect(shouldContinueReading(AGENT_RUN_STATUS.COMPLETED, 0)).toBe(false);
-    expect(shouldContinueReading(AGENT_RUN_STATUS.FAILED, 3)).toBe(false);
+    expect(shouldContinueReading(AGENT_RUN_STATUS.COMPLETED, 3, 1)).toBe(true);
+    expect(shouldContinueReading(AGENT_RUN_STATUS.COMPLETED, 0, 1)).toBe(false);
+    expect(shouldContinueReading(AGENT_RUN_STATUS.FAILED, 3, 1)).toBe(false);
+    expect(shouldContinueReading(AGENT_RUN_STATUS.COMPLETED, 3, 24)).toBe(false);
+    expect(shouldContinueReading(AGENT_RUN_STATUS.COMPLETED, 200, 24, 259)).toBe(true);
   });
 });
 
@@ -121,6 +123,7 @@ describe("runMultiAgentAudit", () => {
     });
 
     expect(result.agentTrace.map((entry) => entry.agentId)).toEqual([
+      AUDIT_AGENT.CODE_READER,
       AUDIT_AGENT.CODE_READER,
       AUDIT_AGENT.CARTOGRAPHER,
       AUDIT_AGENT.STRIDE,
@@ -213,7 +216,7 @@ function responseForAgent(agentId: string): Record<string, unknown> {
   if (agentId === AUDIT_AGENT.CARTOGRAPHER) {
     return {
       architectureBrief: "The app exposes HTTP at a trust boundary and calls an auth session module.",
-      architectureMermaid: "flowchart TD\n  app[\"App\"] --> api[\"API\"]",
+      architectureMermaid: "flowchart TD\napp[\"App\"]\napi[\"API\"]\napp --> api",
       threatModelOverview: "Cartographer mapped the indexed modules.",
       findings: [
         draftFinding("cartographer-entry", "src/app.ts", "architecture", [], [], ["cybersecurity"]),

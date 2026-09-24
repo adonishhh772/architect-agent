@@ -75,7 +75,7 @@ function ReportAccordionSection({
           <ChevronDown className={`mt-1 h-5 w-5 shrink-0 text-[var(--md-primary)] transition ${open ? "rotate-180" : ""}`} aria-hidden />
         </button>
       </h2>
-      {open && <div className="mt-4">{item.content}</div>}
+      {open && <div className="mt-4 max-h-[32rem] overflow-y-auto pr-1">{item.content}</div>}
     </section>
   );
 }

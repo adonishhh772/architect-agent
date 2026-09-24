@@ -7,12 +7,21 @@ import type {
   ConnectionTestResult,
   FetchFn,
 } from "./types.js";
+import { anthropicModelThinks, completionTokenLimit, thinkingTokensForEffort } from "./completion-budget.js";
 import { ProviderError } from "./types.js";
 
 const ANTHROPIC_BASE = "https://api.anthropic.com/v1";
 const ANTHROPIC_VERSION = "2023-06-01";
 const ANTHROPIC_BROWSER_ACCESS_HEADER = "anthropic-dangerous-direct-browser-access";
 const ANTHROPIC_BROWSER_ACCESS_VALUE = "true";
+
+export function readAnthropicText(blocks: ReadonlyArray<{ type: string; text?: string; thinking?: string }>): string {
+  const answer = blocks.filter((block) => block.type === "text").map((block) => block.text ?? "").join("").trim();
+  if (answer) {
+    return answer;
+  }
+  return blocks.filter((block) => block.type === "thinking").map((block) => block.thinking ?? "").join("").trim();
+}
 
 export function createAnthropicAdapter(
   settings: ProviderSettings,
@@ -71,15 +80,20 @@ export function createAnthropicAdapter(
         (message) => message.role !== "system",
       );
 
+      const thinkingTokens = anthropicModelThinks(settings.modelId) ? thinkingTokensForEffort(settings.reasoningEffort) : 0;
       const body: Record<string, unknown> = {
         model: settings.modelId,
-        max_tokens: request.maxOutputTokens ?? settings.outputLimit ?? 4096,
+        max_tokens: completionTokenLimit(request.maxOutputTokens ?? settings.outputLimit, thinkingTokens),
         messages: nonSystemMessages.map((message) => ({
           role: message.role === "assistant" ? "assistant" : "user",
           content: message.content,
         })),
-        temperature: request.temperature ?? 0.2,
       };
+      if (thinkingTokens > 0) {
+        body.thinking = { type: "enabled", budget_tokens: thinkingTokens };
+      } else {
+        body.temperature = request.temperature ?? 0.2;
+      }
       if (systemMessage) {
         body.system = systemMessage.content;
       }
@@ -106,14 +120,13 @@ export function createAnthropicAdapter(
       }
 
       const data = (await response.json()) as {
-        content?: Array<{ type: string; text?: string }>;
+        content?: Array<{ type: string; text?: string; thinking?: string }>;
         usage?: { input_tokens?: number; output_tokens?: number };
         model?: string;
         stop_reason?: string;
       };
 
-      const textBlock = data.content?.find((block) => block.type === "text");
-      const content = textBlock?.text ?? "";
+      const content = readAnthropicText(data.content ?? []);
       if (!content) {
         throw new ProviderError(providerId, "malformed_response", "Empty completion");
       }

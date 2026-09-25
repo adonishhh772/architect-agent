@@ -244,10 +244,13 @@ export async function runAnalysisOrchestrator(
         ).detail,
       },
     ),
-    architectureOverview: aiInvestigation.architectureBrief ?? architectureProfile.purpose,
-    architectureMermaid: aiInvestigation.architectureMermaid ?? graphToMermaid(graph),
+    architectureOverview: compactReportText(aiInvestigation.architectureBrief ?? architectureProfile.purpose),
+    architectureMermaid: fitDiagramText(aiInvestigation.architectureMermaid ?? graphToMermaid(graph)),
     architectureProfile,
-    agentTrace: aiInvestigation.agentTrace,
+    agentTrace: aiInvestigation.agentTrace.map((entry) => ({
+      ...entry,
+      detail: entry.detail.length <= 2_000 ? entry.detail : `${entry.detail.slice(0, 1_999)}…`,
+    })),
     memory: attachLifecycleMemory(
       aiInvestigation.memory,
       findings.records,
@@ -392,6 +395,106 @@ function advisoryCoverageStatus(status: "complete" | "partial" | "skipped" | "fa
   return "partial";
 }
 
+const REPORT_TEXT_LIMIT = 16_000;
+const COMPACT_SENTENCE_FLOOR = 48;
+
+function fitDiagramText(chart: string): string {
+  if (chart.length <= REPORT_TEXT_LIMIT) {
+    return chart;
+  }
+  const lines = chart.split("\n");
+  const kept: string[] = [];
+  let used = 0;
+  for (const line of lines) {
+    const nextLength = used + line.length + (kept.length > 0 ? 1 : 0);
+    if (nextLength > REPORT_TEXT_LIMIT) {
+      break;
+    }
+    kept.push(line);
+    used = nextLength;
+  }
+  return kept.join("\n");
+}
+
+export function compactReportText(value: string, limit = REPORT_TEXT_LIMIT): string {
+  const trimmed = value.trim();
+  if (trimmed.length <= limit) {
+    return trimmed;
+  }
+  const sentences = uniqueSentences(trimmed);
+  if (sentences.length === 0) {
+    return trimmed;
+  }
+  return fitSentences(sentences, limit);
+}
+
+function uniqueSentences(value: string): string[] {
+  const parts = value.split(/(?<=[.!?])\s+|\n+/);
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const part of parts) {
+    const sentence = part.replace(/\s+/g, " ").trim();
+    if (sentence.length === 0) {
+      continue;
+    }
+    const key = sentence.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    unique.push(sentence);
+  }
+  return unique;
+}
+
+function fitSentences(sentences: readonly string[], limit: number): string {
+  let width = Math.max(COMPACT_SENTENCE_FLOOR, Math.floor(limit / sentences.length) - 1);
+  let text = joinShortSentences(sentences, width);
+  while (text.length > limit && width > COMPACT_SENTENCE_FLOOR) {
+    width = Math.max(COMPACT_SENTENCE_FLOOR, width - 8);
+    text = joinShortSentences(sentences, width);
+  }
+  if (text.length <= limit) {
+    return text;
+  }
+  return spreadSentences(sentences, limit);
+}
+
+function joinShortSentences(sentences: readonly string[], width: number): string {
+  return sentences.map((sentence) => shortenSentence(sentence, width)).join(" ");
+}
+
+function shortenSentence(sentence: string, width: number): string {
+  if (sentence.length <= width) {
+    return sentence;
+  }
+  return `${sentence.slice(0, width - 1).trim()}…`;
+}
+
+function spreadSentences(sentences: readonly string[], limit: number): string {
+  const slotCount = Math.max(1, Math.floor(limit / (COMPACT_SENTENCE_FLOOR + 1)));
+  const step = Math.max(1, Math.ceil(sentences.length / slotCount));
+  const picked: string[] = [];
+  let used = 0;
+  for (let index = 0; index < sentences.length; index += step) {
+    const sentence = shortenSentence(sentences[index] ?? "", COMPACT_SENTENCE_FLOOR * 3);
+    const nextLength = used + sentence.length + (picked.length > 0 ? 1 : 0);
+    if (nextLength > limit) {
+      break;
+    }
+    picked.push(sentence);
+    used = nextLength;
+  }
+  const closing = sentences[sentences.length - 1];
+  if (closing && picked[picked.length - 1] !== shortenSentence(closing, COMPACT_SENTENCE_FLOOR * 3)) {
+    const sentence = shortenSentence(closing, COMPACT_SENTENCE_FLOOR * 3);
+    if (used + sentence.length + 1 <= limit) {
+      picked.push(sentence);
+    }
+  }
+  return picked.join(" ");
+}
+
 function buildExecutiveSummary(
   findings: AnalysisReport["findings"],
   nodeCount: number,
@@ -422,10 +525,13 @@ function buildExecutiveSummary(
     : "";
   const findingLabel = findings.length === 1 ? "finding" : "findings";
   const metrics = `Mapped ${nodeCount} architecture components. ${findings.length} ${findingLabel} (${securityCount} security, ${architectureCount} architecture, ${aiCount} AI-security, ${strideTagged} STRIDE-tagged, ${owaspTagged} OWASP-tagged, ${atlasTagged} ATLAS-tagged).${deepNote}${partialNote}`;
-  if (threatModelOverview?.trim()) {
-    return `${metrics}\n\nThreat model overview:\n${threatModelOverview.trim()}`;
+  if (!threatModelOverview?.trim()) {
+    return compactReportText(
+      `${metrics} This review does not prove security; validate critical items through testing and runtime controls.`,
+    );
   }
-  return `${metrics} This review does not prove security; validate critical items through testing and runtime controls.`;
+  const overview = compactReportText(threatModelOverview.trim(), REPORT_TEXT_LIMIT - metrics.length - 32);
+  return compactReportText(`${metrics}\n\nThreat model overview:\n${overview}`);
 }
 
 function buildAgentCoverageEntries(

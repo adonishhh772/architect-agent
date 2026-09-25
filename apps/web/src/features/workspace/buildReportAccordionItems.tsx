@@ -304,7 +304,7 @@ function CoverageExport({
       <p className="mt-4 text-sm text-amber-700 dark:text-amber-200/90">{report.disclaimer}</p>
       <SbomList components={report.sbom ?? []} />
       </div>
-      <div className="select-surface mt-4 flex shrink-0 flex-wrap gap-2 border-t border-[var(--md-outline)]/30 pt-4" data-testid="coverage-export-actions">
+      <div className="mt-4 flex shrink-0 flex-wrap gap-2 border-t border-[var(--md-outline)]/30 bg-transparent pt-4" data-testid="coverage-export-actions">
         <MaterialButton variant="outlined" icon={<FileArchive className="h-4 w-4" aria-hidden />} onClick={onExportJson}>
           Export JSON
         </MaterialButton>
@@ -320,7 +320,7 @@ function CoverageExport({
         <MaterialButton variant="outlined" onClick={handleExportCycloneDx}>
           Export CycloneDX
         </MaterialButton>
-        <MaterialButton icon={<Database className="h-4 w-4" aria-hidden />} onClick={onPersistReport}>
+        <MaterialButton variant="outlined" icon={<Database className="h-4 w-4" aria-hidden />} onClick={onPersistReport}>
           Save to IndexedDB
         </MaterialButton>
       </div>

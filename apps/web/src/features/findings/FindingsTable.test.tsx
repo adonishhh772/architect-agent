@@ -51,7 +51,11 @@ describe("findings table selection", () => {
       secondRow.click();
     });
 
-    expect(container.querySelector("[data-testid='finding-details']")?.textContent).toContain(SECOND_TITLE);
+    const board = container.querySelector("[data-testid='findings-board']");
+    const details = container.querySelector("[data-testid='finding-details']");
+    expect(board?.className).toContain("flex-col");
+    expect(details?.textContent).toContain(SECOND_TITLE);
+    expect(board?.lastElementChild).toBe(details);
     expect(scrolledElementId).toBe("finding-summary");
   });
 });

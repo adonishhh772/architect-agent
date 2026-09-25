@@ -34,14 +34,7 @@ export function FindingsBoard({
   onDispositionChange,
 }: FindingsBoardProps): JSX.Element {
   return (
-    <div
-      className={
-        selectedFinding
-          ? "grid min-w-0 gap-6 2xl:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.7fr)]"
-          : "min-w-0"
-      }
-      data-testid="findings-board"
-    >
+    <div className="flex min-w-0 flex-col gap-6" data-testid="findings-board">
       <FindingsTable
         findings={findings}
         selectedFindingId={selectedFinding?.id}

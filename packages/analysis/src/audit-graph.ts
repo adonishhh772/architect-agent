@@ -15,7 +15,7 @@ import {
   AGENT_STEP_KIND,
 } from "./agent-activity.js";
 import { AUDIT_MESSAGE, type AuditSpecialistOptions, type AuditSpecialistResult } from "./audit-specialist.js";
-import { runAuditSpecialist } from "./audit-specialist.js";
+import { readCodeWindowBatch, runAuditSpecialist } from "./audit-specialist.js";
 import { buildAuditMemory } from "./audit-memory.js";
 import { resolveAttackPaths, verifyAuditFindings } from "./audit-verifier.js";
 import { listUnreadPaths } from "./coverage-queue.js";
@@ -119,7 +119,10 @@ export async function runMultiAgentAudit(options: MultiAgentAuditOptions): Promi
   const graphSummary = summarizeArchitectureGraph(options.context.graph);
   const manifest = buildPathManifest([...options.context.contents.keys()], AUDIT_LIMITS.MANIFEST_PATHS);
   const compiled = buildAuditGraph(options, graphSummary, manifest);
-  const state = await compiled.invoke({});
+  const indexedFileCount = options.context.contents.size;
+  const readerStepLimit = Math.max(AUDIT_LIMITS.MAX_READER_ROUNDS, indexedFileCount * AUDIT_LIMITS.WINDOWS_PER_FILE);
+  const recursionLimit = readerStepLimit + AUDIT_AGENT_ORDER.length + 4;
+  const state = await compiled.invoke({}, { recursionLimit });
   const completedPasses = state.agentTrace.filter(
     (entry) => entry.status === AGENT_RUN_STATUS.COMPLETED && entry.agentId !== AUDIT_AGENT.VERIFIER,
   ).length;
@@ -286,22 +289,26 @@ function createCodeReaderNode(
       };
     }
     try {
-      const result = await runAuditSpecialist({
-        ...options,
-        agentId: AUDIT_AGENT.CODE_READER,
-        architectureBrief: state.architectureBrief,
-        graphSummary,
-        manifest,
-        priorFindingKeys: state.findings.map((finding) => finding.stableKey),
-        alreadyRead: new Set(state.pathsRead),
-        readResume: state.readResume,
-        readColumns: state.readColumns,
-      });
+      const result = await readCodeWindowBatch(
+        {
+          ...options,
+          agentId: AUDIT_AGENT.CODE_READER,
+          architectureBrief: state.architectureBrief,
+          graphSummary,
+          manifest,
+          priorFindingKeys: state.findings.map((finding) => finding.stableKey),
+          alreadyRead: new Set(state.pathsRead),
+          readResume: state.readResume,
+          readColumns: state.readColumns,
+        },
+        AUDIT_LIMITS.READER_FANOUT,
+      );
       const mergedRead = new Set([...state.pathsRead, ...result.pathsRead]);
       const stillUnread = listUnreadPaths(indexedPaths, mergedRead);
       const continueReading = shouldContinueReading(result.trace.status, stillUnread.length, state.readerRounds + 1, indexedPaths.length);
       return {
         ...specialistUpdate(result, state.architectureBrief),
+        agentTrace: result.traces ?? [result.trace],
         continueReading,
         readerRounds: 1,
       };

@@ -21,6 +21,7 @@ import { z } from "zod";
 import { formatMemoryForPrompt } from "./audit-memory.js";
 import { buildCodeReaderSystemPrompt, buildCodeReaderUserPrompt, buildSpecialistSystemPrompt, buildSpecialistUserPrompt } from "./audit-prompts.js";
 import { selectUnreadBatch } from "./coverage-queue.js";
+import { mapWithConcurrency } from "./map-with-concurrency.js";
 import {
   AUDIT_LIMITS,
   describeUnopenedFiles,
@@ -186,6 +187,7 @@ export interface AuditSpecialistResult {
   evidenceNotes?: string[];
   continueReading: boolean;
   trace: AgentTraceEntry;
+  traces?: AgentTraceEntry[];
 }
 
 export function runAuditSpecialist(options: AuditSpecialistOptions): Promise<AuditSpecialistResult> {
@@ -374,6 +376,87 @@ async function executeSpecialist(options: AuditSpecialistOptions): Promise<Audit
 
 const ANSWER_NOTE_LIMIT = 480;
 
+export async function readCodeWindowBatch(options: AuditSpecialistOptions, fanout: number): Promise<AuditSpecialistResult> {
+  const planned = planCodeWindows(options, fanout);
+  if (planned.length === 0) {
+    if (!budgetAllowsRequest(options)) {
+      return finishSpecialist(options, AGENT_RUN_STATUS.SKIPPED, AUDIT_MESSAGE.BUDGET_EXHAUSTED, 0);
+    }
+    return finishSpecialist(options, AGENT_RUN_STATUS.COMPLETED, AUDIT_MESSAGE.READER_DONE, 0);
+  }
+  const results = await mapWithConcurrency(planned.selections, planned.selections.length, (selection) => completeCodeWindow(options, selection));
+  return mergeCodeWindowResults(results, planned.resume, planned.columns);
+}
+
+function planCodeWindows(
+  options: AuditSpecialistOptions,
+  fanout: number,
+): { selections: EvidenceSelection[]; resume: Record<string, number>; columns: Record<string, number> } {
+  const slots = requestSlotsLeft(options, fanout);
+  const selections: EvidenceSelection[] = [];
+  let alreadyRead = new Set(options.alreadyRead ?? []);
+  let readResume = { ...(options.readResume ?? {}) };
+  let readColumns = { ...(options.readColumns ?? {}) };
+  const paths = [...options.context.contents.keys()];
+  for (let index = 0; index < slots; index += 1) {
+    const selection = selectEvidenceForAgent(
+      options.agentId,
+      paths,
+      alreadyRead,
+      options.context,
+      options.pullRequests,
+      readResume,
+      readColumns,
+    );
+    if (selection.skip || selection.paths.length === 0) {
+      break;
+    }
+    selections.push(selection);
+    for (const path of selection.finishedPaths ?? selection.paths) {
+      alreadyRead.add(path);
+    }
+    readResume = { ...readResume, ...(selection.readResume ?? {}) };
+    readColumns = { ...readColumns, ...(selection.readColumns ?? {}) };
+  }
+  return { selections, resume: readResume, columns: readColumns };
+}
+
+function requestSlotsLeft(options: AuditSpecialistOptions, fanout: number): number {
+  const width = Math.max(1, fanout);
+  if (options.budget?.maxRequests === undefined) {
+    return width;
+  }
+  const used = options.getUsage?.().requestsUsed ?? 0;
+  return Math.max(0, Math.min(width, options.budget.maxRequests - used));
+}
+
+function mergeCodeWindowResults(
+  results: AuditSpecialistResult[],
+  resume: Record<string, number>,
+  columns: Record<string, number>,
+): AuditSpecialistResult {
+  const completed = results.some((result) => result.trace.status === AGENT_RUN_STATUS.COMPLETED);
+  const lead = results[0];
+  return {
+    findings: results.flatMap((result) => result.findings),
+    attackPaths: results.flatMap((result) => result.attackPaths),
+    pathsRead: results.flatMap((result) => result.pathsRead),
+    pathsPartial: results.flatMap((result) => result.pathsPartial),
+    readResume: resume,
+    readColumns: columns,
+    evidenceNotes: results.flatMap((result) => result.evidenceNotes ?? []),
+    continueReading: false,
+    overview: results.map((result) => result.overview).filter((overview): overview is string => Boolean(overview)).join("\n"),
+    trace: {
+      agentId: lead?.trace.agentId ?? AUDIT_AGENT.CODE_READER,
+      status: completed ? AGENT_RUN_STATUS.COMPLETED : lead?.trace.status ?? AGENT_RUN_STATUS.FAILED,
+      detail: lead?.trace.detail ?? AUDIT_MESSAGE.READER_COMPLETE,
+      toolCallCount: results.reduce((total, result) => total + result.trace.toolCallCount, 0),
+    },
+    traces: results.map((result) => result.trace),
+  };
+}
+
 async function readOneCodeWindow(options: AuditSpecialistOptions): Promise<AuditSpecialistResult> {
   const paths = [...options.context.contents.keys()];
   const selection = selectEvidenceForAgent(
@@ -388,7 +471,10 @@ async function readOneCodeWindow(options: AuditSpecialistOptions): Promise<Audit
   if (selection.skip) {
     return finishSpecialist(options, selection.status, selection.detail, 0);
   }
+  return completeCodeWindow(options, selection);
+}
 
+async function completeCodeWindow(options: AuditSpecialistOptions, selection: EvidenceSelection): Promise<AuditSpecialistResult> {
   const selected = selection.paths;
   await publishFileReads(options, selected);
   reportAgentStep(options, AGENT_ACTIVITY_STATUS.RUNNING, AGENT_STEP_KIND.ACTION, AGENT_ACTIVITY_TEXT.CALLING_WINDOW);

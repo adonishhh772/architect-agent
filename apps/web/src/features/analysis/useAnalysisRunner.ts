@@ -38,7 +38,6 @@ export function useAnalysisRunner(): {
     enableAi: boolean;
     advisoryLookupConsent: boolean;
     exclusions: string[];
-    maxTokens: number;
   }) => Promise<AnalysisRunResult>;
   cancel: () => void;
 } {
@@ -97,9 +96,7 @@ export function useAnalysisRunner(): {
             agentWorkRef.current = nextWork;
             setAgentWork(nextWork);
           },
-          budget: {
-            maxTokens: input.maxTokens,
-          },
+          budget: {},
           githubToken: input.githubToken,
           priorMemory: input.priorMemory,
           advisoryLookupConsent: input.advisoryLookupConsent,

@@ -38,7 +38,7 @@ const CliArgsSchema = z
     modelId: z.string().min(1).optional(),
     outputDir: z.string().default("./analysis-artifacts"),
     maxRequests: z.coerce.number().int().positive().default(24),
-    maxTokens: z.coerce.number().int().positive().default(100_000),
+    maxTokens: z.coerce.number().int().positive().optional(),
     enableAi: z.boolean().default(true),
     memoryPath: z.string().optional(),
     pullRequestNumber: z.coerce.number().int().positive().optional(),

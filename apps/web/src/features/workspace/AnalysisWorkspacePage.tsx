@@ -78,7 +78,6 @@ export function AnalysisWorkspacePage(): JSX.Element {
   const [exclusions, setExclusions] = useState(".env,secrets,id_rsa");
   const [githubToken, setGithubToken] = useState("");
   const [advisoryLookupConsent, setAdvisoryLookupConsent] = useState(false);
-  const [maxTokens, setMaxTokens] = useState(200_000);
   const [selectedTreePath, setSelectedTreePath] = useState<string | undefined>();
   const [store, setStore] = useState<RepositoryStore | null>(null);
   const [sourceLabel, setSourceLabel] = useState<string>("");
@@ -288,7 +287,6 @@ export function AnalysisWorkspacePage(): JSX.Element {
         enableAi: true,
         advisoryLookupConsent,
         exclusions: exclusionList,
-        maxTokens,
       });
       setReport(completed.report);
       setOpenedAgentWork(completed.agentWork);
@@ -334,10 +332,6 @@ export function AnalysisWorkspacePage(): JSX.Element {
 
   const handleTransmissionConfirmChange = (event: ChangeEvent<HTMLInputElement>): void => {
     session.setAiTransmissionConfirmed(event.target.checked);
-  };
-
-  const handleMaxTokensChange = (event: ChangeEvent<HTMLInputElement>): void => {
-    setMaxTokens(Number(event.target.value));
   };
 
   const handleSelectFinding = (findingId: string): void => {
@@ -872,14 +866,6 @@ export function AnalysisWorkspacePage(): JSX.Element {
                 />
                 I confirm sending package names and versions from the indexed lockfile to the public OSV advisory service
               </label>
-              <MaterialTextField
-                label="Max tokens"
-                type="number"
-                value={String(maxTokens)}
-                min={1000}
-                max={200000}
-                onChange={handleMaxTokensChange}
-              />
             </div>
           </div>
         </PageSection>

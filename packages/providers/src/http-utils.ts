@@ -3,6 +3,8 @@ import type { FetchFn } from "./types.js";
 
 export const REQUEST_TIMED_OUT_MESSAGE = "Request timed out";
 
+const TRANSIENT_FETCH_MESSAGE = /failed to fetch|networkerror|network request failed|load failed/i;
+
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
 }
@@ -25,7 +27,13 @@ export async function fetchWithTimeout(
       });
     }
     const message = error instanceof Error ? error.message : String(error);
-    if (/failed to fetch|cors|network/i.test(message)) {
+    if (TRANSIENT_FETCH_MESSAGE.test(message)) {
+      throw new ProviderError("unknown", "network", message, {
+        retryable: true,
+        cause: error,
+      });
+    }
+    if (/cors/i.test(message)) {
       throw new ProviderError("unknown", "cors", message, {
         retryable: false,
         cause: error,

@@ -108,6 +108,53 @@ describe("code reader windows", () => {
   });
 });
 
+describe("code reader connection drops", () => {
+  it("retries a dropped connection and then saves the window", async () => {
+    let attempts = 0;
+    const steps: string[] = [];
+    const provider = createProvider(async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        throw new ProviderError("openai", "network", "Failed to fetch", { retryable: true });
+      }
+      return {
+        text: JSON.stringify({ threatModelOverview: "Reviewed after the connection returned.", findings: [], attackPaths: [] }),
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        model: "mock-model",
+        finishReason: "stop",
+      };
+    });
+
+    const result = await runAuditSpecialist({
+      ...specialistOptions(provider),
+      onAgentStep: (update) => {
+        steps.push(update.step);
+      },
+    });
+
+    expect(attempts).toBe(2);
+    expect(steps).toContain(AUDIT_MESSAGE.READER_FETCH_RETRY);
+    expect(result.trace.status).toBe(AGENT_RUN_STATUS.COMPLETED);
+    expect(result.overview).toBe("Reviewed after the connection returned.");
+    expect(result.trace.detail).toBe(AUDIT_MESSAGE.READER_COMPLETE);
+  });
+
+  it("skips one window after repeated connection drops so the reader can continue", async () => {
+    let attempts = 0;
+    const provider = createProvider(async () => {
+      attempts += 1;
+      throw new TypeError("Failed to fetch");
+    });
+
+    const result = await runAuditSpecialist(specialistOptions(provider));
+
+    expect(attempts).toBe(3);
+    expect(result.trace.status).toBe(AGENT_RUN_STATUS.COMPLETED);
+    expect(result.trace.detail).toBe(AUDIT_MESSAGE.READER_FETCH_CONTINUED);
+    expect(result.findings).toEqual([]);
+  });
+});
+
 describe("specialist review timeouts", () => {
   it("continues after a shared-evidence timeout instead of failing the agent", async () => {
     let attempts = 0;

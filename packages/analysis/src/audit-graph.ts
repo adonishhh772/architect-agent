@@ -14,7 +14,7 @@ import {
   AGENT_ACTIVITY_TEXT,
   AGENT_STEP_KIND,
 } from "./agent-activity.js";
-import { AUDIT_MESSAGE, type AuditSpecialistOptions, type AuditSpecialistResult } from "./audit-specialist.js";
+import { AUDIT_MESSAGE, isRetryableNetworkError, type AuditSpecialistOptions, type AuditSpecialistResult } from "./audit-specialist.js";
 import { readCodeWindowBatch, runAuditSpecialist } from "./audit-specialist.js";
 import { buildAuditMemory } from "./audit-memory.js";
 import { resolveAttackPaths, verifyAuditFindings } from "./audit-verifier.js";
@@ -317,6 +317,33 @@ function createCodeReaderNode(
         throw error;
       }
       const message = error instanceof Error ? error.message : "Code reader failed";
+      if (isRetryableNetworkError(error)) {
+        const stillUnread = listUnreadPaths(indexedPaths, new Set(state.pathsRead));
+        const continueReading = shouldContinueReading(
+          AGENT_RUN_STATUS.COMPLETED,
+          stillUnread.length,
+          state.readerRounds + 1,
+          indexedPaths.length,
+        );
+        options.onAgentStep?.({
+          agentId: AUDIT_AGENT.CODE_READER,
+          status: AGENT_ACTIVITY_STATUS.RUNNING,
+          kind: AGENT_STEP_KIND.ACTION,
+          step: AUDIT_MESSAGE.READER_FETCH_CONTINUED,
+        });
+        return {
+          continueReading,
+          readerRounds: 1,
+          agentTrace: [
+            {
+              agentId: AUDIT_AGENT.CODE_READER,
+              status: AGENT_RUN_STATUS.COMPLETED,
+              detail: AUDIT_MESSAGE.READER_FETCH_CONTINUED,
+              toolCallCount: 0,
+            },
+          ],
+        };
+      }
       options.onAgentStep?.({
         agentId: AUDIT_AGENT.CODE_READER,
         status: AGENT_ACTIVITY_STATUS.FAILED,

@@ -67,9 +67,12 @@ export function FindingsTable({
           <option value={FINDING_CATEGORY.AI_SECURITY}>AI security</option>
         </select>
       </div>
-      <div className="overflow-x-auto rounded-2xl border border-[var(--md-outline)]/30">
+      <div
+        className="max-h-[32rem] overflow-auto rounded-2xl border border-[var(--md-outline)]/30"
+        data-testid="findings-table-scroll"
+      >
         <table className="data-table">
-          <thead>
+          <thead className="sticky top-0 z-10 bg-[var(--md-surface)]">
             <tr>
               <th>Rank</th>
               <th>Title</th>

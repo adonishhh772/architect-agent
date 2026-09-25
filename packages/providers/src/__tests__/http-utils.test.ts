@@ -18,6 +18,16 @@ describe("fetchWithTimeout", () => {
     });
   });
 
+  it("retries a dropped browser connection instead of treating it as a blocked request", async () => {
+    const fetchFn: FetchFn = () => Promise.reject(new TypeError("Failed to fetch"));
+
+    await expect(fetchWithTimeout(fetchFn, "https://example.test", { method: "POST" }, 1_000)).rejects.toMatchObject({
+      code: "network",
+      message: "Failed to fetch",
+      retryable: true,
+    });
+  });
+
   it("uses ProviderError for the timeout", async () => {
     const fetchFn: FetchFn = () => {
       const abortError = new Error("aborted");

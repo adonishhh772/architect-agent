@@ -1,6 +1,6 @@
 import { FINDING_DISPOSITION, type Finding } from "@sentinel/schema";
 import { FileSearch } from "lucide-react";
-import type { MouseEvent } from "react";
+import { useEffect, useRef, type MouseEvent } from "react";
 
 const DISPOSITION_OPTIONS = [
   FINDING_DISPOSITION.CONFIRMED,
@@ -16,6 +16,12 @@ interface FindingDetailsPanelProps {
 }
 
 export function FindingDetailsPanel({ finding, onDispositionChange }: FindingDetailsPanelProps): JSX.Element {
+  const summaryRef = useRef<HTMLElement | null>(null);
+
+  useEffect(function scrollSelectedFindingIntoView(): void {
+    scrollFindingSummary(summaryRef.current);
+  }, [finding?.id]);
+
   if (!finding) {
     return (
       <div
@@ -39,7 +45,12 @@ export function FindingDetailsPanel({ finding, onDispositionChange }: FindingDet
   }
 
   return (
-    <article className="surface-inset max-h-[70vh] min-w-0 space-y-4 overflow-y-auto break-words" data-testid="finding-details">
+    <article
+      id="finding-summary"
+      ref={summaryRef}
+      className="surface-inset max-h-[70vh] min-w-0 scroll-mt-6 space-y-4 overflow-y-auto break-words"
+      data-testid="finding-details"
+    >
       <header>
         <p className="break-all text-xs font-semibold uppercase tracking-wider text-[var(--md-on-surface-variant)]">
           {finding.id}
@@ -195,6 +206,13 @@ export function FindingDetailsPanel({ finding, onDispositionChange }: FindingDet
       )}
     </article>
   );
+}
+
+function scrollFindingSummary(element: HTMLElement | null): void {
+  if (!element) {
+    return;
+  }
+  element.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function isDisposition(value: string | undefined): value is DispositionValue {

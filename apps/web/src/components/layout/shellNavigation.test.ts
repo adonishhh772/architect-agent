@@ -1,25 +1,26 @@
 import { describe, expect, it } from "vitest";
 import {
   SIDEBAR_COLLAPSED_VALUE,
+  SIDEBAR_EXPANDED_VALUE,
   readSidebarCollapsed,
   sidebarCollapsedStorageValue,
 } from "./shellNavigation";
 
 describe("readSidebarCollapsed", () => {
-  it("treats the stored flag as collapsed", () => {
+  it("starts collapsed when nothing has been saved", () => {
+    expect(readSidebarCollapsed(null)).toBe(true);
+    expect(readSidebarCollapsed("")).toBe(true);
     expect(readSidebarCollapsed(SIDEBAR_COLLAPSED_VALUE)).toBe(true);
   });
 
-  it("treats a missing or other value as expanded", () => {
-    expect(readSidebarCollapsed(null)).toBe(false);
-    expect(readSidebarCollapsed("")).toBe(false);
-    expect(readSidebarCollapsed("true")).toBe(false);
+  it("stays expanded only after that choice is saved", () => {
+    expect(readSidebarCollapsed(SIDEBAR_EXPANDED_VALUE)).toBe(false);
   });
 });
 
 describe("sidebarCollapsedStorageValue", () => {
-  it("stores a flag when minimized and clears it when expanded", () => {
+  it("stores collapsed and expanded as separate flags", () => {
     expect(sidebarCollapsedStorageValue(true)).toBe(SIDEBAR_COLLAPSED_VALUE);
-    expect(sidebarCollapsedStorageValue(false)).toBeNull();
+    expect(sidebarCollapsedStorageValue(false)).toBe(SIDEBAR_EXPANDED_VALUE);
   });
 });

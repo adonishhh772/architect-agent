@@ -75,6 +75,8 @@ export const AUDIT_MESSAGE = {
   EMPTY_BATCH: "The model returned an empty reply for this batch. Continuing with the remaining indexed files.",
   READER_TIMEOUT_RETRY: "The model request timed out. Retrying with a shorter file window.",
   READER_TIMEOUT_CONTINUED: "The model request timed out. This batch was skipped so the review can continue.",
+  READER_FETCH_RETRY: "The provider connection dropped. Retrying this request.",
+  READER_FETCH_CONTINUED: "The provider connection dropped. This window was skipped so the review can continue.",
 } as const;
 
 const DEFAULT_RISK_BY_AGENT: Record<string, Array<(typeof RISK_DOMAIN_LIST)[number]>> = {
@@ -285,7 +287,7 @@ async function executeSpecialist(options: AuditSpecialistOptions): Promise<Audit
       memoryText: formatMemoryForPrompt(options.priorMemory),
     });
     if (requested.kind !== "ok") {
-      const detail = requested.kind === "timeout" ? AUDIT_MESSAGE.READER_TIMEOUT_CONTINUED : AUDIT_MESSAGE.EMPTY_BATCH;
+      const detail = describeSkippedCompletion(requested.kind);
       return emptyReaderBatch(
         options,
         selection.finishedPaths ?? selected,
@@ -385,7 +387,9 @@ export async function readCodeWindowBatch(options: AuditSpecialistOptions, fanou
     }
     return finishSpecialist(options, AGENT_RUN_STATUS.COMPLETED, AUDIT_MESSAGE.READER_DONE, 0);
   }
-  const results = await mapWithConcurrency(planned.selections, planned.selections.length, (selection) => completeCodeWindow(options, selection));
+  const results = await mapWithConcurrency(planned.selections, planned.selections.length, (selection) =>
+    completeCodeWindowSafely(options, selection),
+  );
   return mergeCodeWindowResults(results, planned.resume, planned.columns);
 }
 
@@ -475,6 +479,33 @@ async function readOneCodeWindow(options: AuditSpecialistOptions): Promise<Audit
   return completeCodeWindow(options, selection);
 }
 
+async function completeCodeWindowSafely(
+  options: AuditSpecialistOptions,
+  selection: EvidenceSelection,
+): Promise<AuditSpecialistResult> {
+  try {
+    return await completeCodeWindow(options, selection);
+  } catch (error: unknown) {
+    if (isAbortError(error)) {
+      throw error;
+    }
+    const selected = selection.paths;
+    if (isRetryableNetworkError(error)) {
+      return emptyReaderBatch(
+        options,
+        selection.finishedPaths ?? selected,
+        selection.partialPaths,
+        selection.readResume,
+        selection.readColumns,
+        selected.length,
+        AUDIT_MESSAGE.READER_FETCH_CONTINUED,
+      );
+    }
+    const detail = error instanceof Error ? error.message : AUDIT_MESSAGE.EMPTY_BATCH;
+    return finishSpecialist(options, AGENT_RUN_STATUS.FAILED, detail, selected.length, selected);
+  }
+}
+
 async function completeCodeWindow(options: AuditSpecialistOptions, selection: EvidenceSelection): Promise<AuditSpecialistResult> {
   const selected = selection.paths;
   const windowText = selection.observations[0]?.text ?? "";
@@ -498,7 +529,7 @@ async function completeCodeWindow(options: AuditSpecialistOptions, selection: Ev
     memoryText: formatMemoryForPrompt(options.priorMemory),
   });
   if (requested.kind !== "ok") {
-    const detail = requested.kind === "timeout" ? AUDIT_MESSAGE.READER_TIMEOUT_CONTINUED : AUDIT_MESSAGE.EMPTY_BATCH;
+    const detail = describeSkippedCompletion(requested.kind);
     return emptyReaderBatch(
       options,
       selection.finishedPaths ?? selected,
@@ -601,7 +632,7 @@ async function reviewSharedEvidence(options: AuditSpecialistOptions, sharedEvide
         options,
         AGENT_ACTIVITY_STATUS.RUNNING,
         AGENT_STEP_KIND.ACTION,
-        requested.kind === "timeout" ? AUDIT_MESSAGE.READER_TIMEOUT_CONTINUED : AUDIT_MESSAGE.EMPTY_BATCH,
+        describeSkippedCompletion(requested.kind),
       );
       continue;
     }
@@ -754,7 +785,11 @@ const SHORTER_WINDOW_FLOOR = 350;
 type SpecialistCompletionRequest =
   | { kind: "ok"; completion: Awaited<ReturnType<AiProviderAdapter["complete"]>> }
   | { kind: "empty" }
-  | { kind: "timeout" };
+  | { kind: "timeout" }
+  | { kind: "fetch" };
+
+const TRANSIENT_FETCH_MESSAGE = /failed to fetch|networkerror|network request failed|load failed/i;
+const FETCH_RETRY_DELAY_MS = 400;
 
 function manifestForAgent(_agentId: string, manifest: string): string {
   return manifest.split("\n").slice(0, AUDIT_LIMITS.READER_MANIFEST_PATHS).join("\n");
@@ -787,6 +822,14 @@ async function requestSpecialistCompletion(
         }
         return { kind: "timeout" };
       }
+      if (isRetryableNetworkError(error)) {
+        if (attempt < attemptLimit - 1) {
+          reportAgentStep(options, AGENT_ACTIVITY_STATUS.RUNNING, AGENT_STEP_KIND.ACTION, AUDIT_MESSAGE.READER_FETCH_RETRY);
+          await waitBeforeRetry(attempt, options.signal);
+          continue;
+        }
+        return { kind: "fetch" };
+      }
       throw error;
     }
   }
@@ -810,8 +853,49 @@ function specialistMessages(
   ];
 }
 
+function describeSkippedCompletion(kind: "empty" | "timeout" | "fetch"): string {
+  if (kind === "timeout") {
+    return AUDIT_MESSAGE.READER_TIMEOUT_CONTINUED;
+  }
+  if (kind === "fetch") {
+    return AUDIT_MESSAGE.READER_FETCH_CONTINUED;
+  }
+  return AUDIT_MESSAGE.EMPTY_BATCH;
+}
+
+export function isRetryableNetworkError(error: unknown): boolean {
+  if (error instanceof ProviderError && error.code === "network") {
+    return true;
+  }
+  return error instanceof Error && TRANSIENT_FETCH_MESSAGE.test(error.message);
+}
+
 function isRequestTimeout(error: unknown): boolean {
   return error instanceof ProviderError && error.code === "timeout";
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+function waitBeforeRetry(attempt: number, signal: AbortSignal | undefined): Promise<void> {
+  const delayMs = FETCH_RETRY_DELAY_MS * (attempt + 1);
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(finishWait, delayMs);
+    function finishWait(): void {
+      signal?.removeEventListener("abort", abortWait);
+      resolve();
+    }
+    function abortWait(): void {
+      clearTimeout(timer);
+      reject(new DOMException("Aborted", "AbortError"));
+    }
+    if (signal?.aborted) {
+      abortWait();
+      return;
+    }
+    signal?.addEventListener("abort", abortWait, { once: true });
+  });
 }
 
 function shrinkObservations(observations: string[]): string[] {

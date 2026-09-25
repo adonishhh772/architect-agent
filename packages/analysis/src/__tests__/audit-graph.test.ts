@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { moduleNodeIdForPath } from "@sentinel/graph";
 import { buildRepositoryStore } from "@sentinel/ingestion";
-import type { AiProviderAdapter } from "@sentinel/providers";
+import { ProviderError, type AiProviderAdapter } from "@sentinel/providers";
 import {
   AGENT_RUN_STATUS,
   AUDIT_AGENT,
@@ -9,6 +9,7 @@ import {
   OWASP_CATEGORY,
   type ProviderSettings,
 } from "@sentinel/schema";
+import { AUDIT_MESSAGE } from "../audit-specialist.js";
 import { runMultiAgentAudit, shouldContinueReading } from "../audit-graph.js";
 import { selectPathsForAgent } from "../evidence-packs.js";
 import { verifyAuditFindings } from "../audit-verifier.js";
@@ -157,6 +158,42 @@ describe("runMultiAgentAudit", () => {
     expect(steps.some((step) => step.includes("searchCode on NEEDLE_ARCHITECTURE"))).toBe(true);
     expect(steps.some((step) => step.startsWith(`${AUDIT_AGENT.VERIFIER}:`))).toBe(true);
     expect(requestsUsed).toBeGreaterThanOrEqual(7);
+  });
+
+  it("keeps reading the repository after the provider connection drops", async () => {
+    const store = buildRepositoryStore(SAMPLE_FILES);
+    const graph = extractArchitectureFromTypeScript({ files: store.contents });
+    const prompts: string[] = [];
+    const steps: string[] = [];
+    let droppedConnections = 0;
+    const provider = createScriptedProvider(prompts);
+    const complete = provider.complete.bind(provider);
+    provider.complete = (apiKey, request) => {
+      const system = request.messages.find((message) => message.role === "system")?.content ?? "";
+      if (readAgentId(system) === AUDIT_AGENT.CODE_READER && droppedConnections < 1) {
+        droppedConnections += 1;
+        return Promise.reject(new ProviderError("openai", "network", "Failed to fetch", { retryable: true }));
+      }
+      return complete(apiKey, request);
+    };
+
+    const result = await runMultiAgentAudit({
+      context: { contents: store.contents, graph },
+      provider,
+      apiKey: "test-key",
+      budget: { maxRequests: 30, maxTokens: 100_000 },
+      onAgentStep: (update) => {
+        steps.push(update.step);
+      },
+    });
+
+    const readerTrace = result.agentTrace.filter((entry) => entry.agentId === AUDIT_AGENT.CODE_READER);
+    expect(droppedConnections).toBe(1);
+    expect(steps).toContain(AUDIT_MESSAGE.READER_FETCH_RETRY);
+    expect(readerTrace.every((entry) => entry.status === AGENT_RUN_STATUS.COMPLETED)).toBe(true);
+    expect(readerTrace.some((entry) => entry.detail === "Failed to fetch")).toBe(false);
+    expect(result.memory.filesUnread).toEqual([]);
+    expect(result.agentTrace.some((entry) => entry.agentId === AUDIT_AGENT.STRIDE)).toBe(true);
   });
 
   it("skips later specialists when the request budget is exhausted", async () => {

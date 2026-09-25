@@ -282,18 +282,13 @@ function readStoredSidebarCollapsed(): boolean {
   try {
     return readSidebarCollapsed(localStorage.getItem(SIDEBAR_COLLAPSED_KEY));
   } catch {
-    return false;
+    return true;
   }
 }
 
 function persistSidebarCollapsed(collapsed: boolean): void {
   try {
-    const stored = sidebarCollapsedStorageValue(collapsed);
-    if (stored === null) {
-      localStorage.removeItem(SIDEBAR_COLLAPSED_KEY);
-      return;
-    }
-    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, stored);
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, sidebarCollapsedStorageValue(collapsed));
   } catch {
     return;
   }

@@ -1,13 +1,7 @@
-import mermaid from "mermaid";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MaterialButton } from "../../../components/material/MaterialButton";
 import { downloadDiagramPng, downloadDiagramSvg } from "../diagramExport";
-
-mermaid.initialize({
-  startOnLoad: false,
-  securityLevel: "strict",
-  theme: "neutral",
-});
+import { renderArchitectureMermaid } from "./renderArchitectureMermaid";
 
 interface MermaidDiagramProps {
   chart: string;
@@ -20,7 +14,6 @@ const SVG_FILENAME = "architecture-map.svg";
 const PNG_FILENAME = "architecture-map.png";
 
 export function MermaidDiagram({ chart, fallbackChart, onSelectLabel }: MermaidDiagramProps): JSX.Element {
-  const reactId = useId().replace(/:/g, "");
   const containerRef = useRef<HTMLDivElement>(null);
   const [svg, setSvg] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -32,14 +25,12 @@ export function MermaidDiagram({ chart, fallbackChart, onSelectLabel }: MermaidD
       setIsLoading(true);
       setError(null);
       try {
-        const renderId = `architecture-map-${reactId}`;
-        const rendered = await renderMermaidChart(renderId, chart, fallbackChart);
+        const rendered = await renderArchitectureMermaid(chart, fallbackChart);
         if (!cancelled) {
           setSvg(rendered);
           setError(null);
         }
       } catch (caught) {
-        removeMermaidHost(`architecture-map-${reactId}`);
         if (!cancelled) {
           setSvg("");
           setError(caught instanceof Error ? caught.message : MERMAID_RENDER_ERROR);
@@ -54,7 +45,7 @@ export function MermaidDiagram({ chart, fallbackChart, onSelectLabel }: MermaidD
     return () => {
       cancelled = true;
     };
-  }, [chart, fallbackChart, reactId]);
+  }, [chart, fallbackChart]);
 
   useEffect(() => {
     const root = containerRef.current;
@@ -72,11 +63,11 @@ export function MermaidDiagram({ chart, fallbackChart, onSelectLabel }: MermaidD
     );
   }
 
-  if (error) {
+  if (error || !svg) {
     return (
-      <pre className="overflow-auto rounded-xl bg-[var(--md-surface-container-high)] p-4 text-xs text-[var(--md-on-surface)]" data-testid="architecture-mermaid-source">
-        {chart}
-      </pre>
+      <p className="text-sm text-[var(--md-on-surface-variant)]" data-testid="architecture-mermaid-error">
+        {error ?? MERMAID_RENDER_ERROR}
+      </p>
     );
   }
 
@@ -106,24 +97,6 @@ export function MermaidDiagram({ chart, fallbackChart, onSelectLabel }: MermaidD
       />
     </div>
   );
-}
-
-async function renderMermaidChart(renderId: string, chart: string, fallbackChart: string | undefined): Promise<string> {
-  try {
-    const rendered = await mermaid.render(renderId, chart);
-    return rendered.svg;
-  } catch (caught) {
-    removeMermaidHost(renderId);
-    if (!fallbackChart || fallbackChart === chart) {
-      throw caught;
-    }
-    const fallback = await mermaid.render(`${renderId}-fallback`, fallbackChart);
-    return fallback.svg;
-  }
-}
-
-function removeMermaidHost(renderId: string): void {
-  document.getElementById(renderId)?.remove();
 }
 
 function bindNodeClicks(root: HTMLDivElement, onSelectLabel: (label: string) => void): () => void {

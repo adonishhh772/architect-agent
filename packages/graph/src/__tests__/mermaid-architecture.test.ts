@@ -9,7 +9,7 @@ describe("graphToMermaid", () => {
     expect(diagram.startsWith("flowchart TD")).toBe(true);
     expect(diagram).toContain("API");
     expect(diagram).toContain("Orders DB");
-    expect(diagram).toContain("-->|calls|");
+    expect(diagram).toContain('-->|"calls"|');
   });
 
   it("groups source files into folders instead of one chip per file", () => {
@@ -33,7 +33,7 @@ describe("graphToMermaid", () => {
     expect(diagram).toContain("backend/app/middleware");
     expect(diagram).toContain("backend/app/services/llm");
     expect(diagram).not.toContain("http_logging.py");
-    expect(diagram).toContain("-->|imports|");
+    expect(diagram).toContain('-->|"imports"|');
   });
 
   it("returns a placeholder when the graph is empty", () => {

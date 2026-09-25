@@ -52,7 +52,7 @@ export function graphToMermaid(graph: ArchitectureGraph): string {
 
 const MERMAID_HEADER = /^(?:flowchart|graph)\s+(?:TD|TB|LR|RL)\s*$/i;
 const MERMAID_NODE = /^[A-Za-z][\w-]*\["[^"\n]*"\]$/;
-const MERMAID_EDGE = /^[A-Za-z][\w-]*\s+(?:-->|---)(?:\|[^|\n]{0,80}\|)?\s+[A-Za-z][\w-]*$/;
+const MERMAID_EDGE = /^[A-Za-z][\w-]*\s+(?:-->|---)(?:\|"?[^"|\n]{0,80}"?\|)?\s+[A-Za-z][\w-]*$/;
 
 export function sanitizeArchitectureMermaid(value: string): string | undefined {
   const stripped = value.replace(/^```(?:mermaid)?\s*/i, "").replace(/```\s*$/i, "").trim();
@@ -96,7 +96,7 @@ function renderDiagram(nodes: ArchitectureGraph["nodes"], edges: ArchitectureGra
     }
     const arrow = edge.bidirectional ? "---" : "-->";
     const label = edge.label?.trim() || edge.kind.replaceAll("_", " ");
-    lines.push(`  ${sourceId} ${arrow}|${escapeMermaidLabel(label)}| ${targetId}`);
+    lines.push(`  ${sourceId} ${arrow}|"${escapeMermaidLabel(label)}"| ${targetId}`);
     edgeCount += 1;
   }
   return lines.join("\n");
@@ -143,7 +143,7 @@ function folderDiagram(graph: ArchitectureGraph): string | null {
     if (!sourceId || !targetId) {
       continue;
     }
-    lines.push(`  ${sourceId} -->|imports| ${targetId}`);
+    lines.push(`  ${sourceId} -->|"imports"| ${targetId}`);
   }
   return lines.join("\n");
 }

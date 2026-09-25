@@ -18,6 +18,9 @@
   --md-surface: #f4f7fb;
   --md-surface-container: rgba(255, 255, 255, 0.72);
   --md-surface-container-high: rgba(255, 255, 255, 0.9);
+  --md-menu-surface: #ffffff;
+  --md-menu-option: #eef3f9;
+  --md-menu-option-active: #dbeafe;
   --md-on-surface: #0f172a;
   --md-on-surface-variant: #475569;
   --md-outline: #94a3b8;
@@ -33,6 +36,9 @@
   --md-surface: #070714;
   --md-surface-container: rgba(255, 255, 255, 0.05);
   --md-surface-container-high: rgba(255, 255, 255, 0.08);
+  --md-menu-surface: #16162c;
+  --md-menu-option: #24263c;
+  --md-menu-option-active: #0c4a6e;
   --md-on-surface: #e8eefc;
   --md-on-surface-variant: #a8b3c7;
   --md-outline: rgba(255, 255, 255, 0.16);
@@ -227,6 +233,10 @@ body {
 
 .glass-input {
   @apply w-full rounded-xl border border-[var(--md-outline)]/50 bg-[var(--md-surface-container-high)]/70 px-3 py-2.5 text-sm text-[var(--md-on-surface)] outline-none transition focus:border-[var(--md-primary)] focus:ring-2 focus:ring-[var(--md-primary)]/20;
+}
+
+.select-surface {
+  background-color: var(--md-menu-surface);
 }
 
 .meta-pill {

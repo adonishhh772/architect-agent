@@ -73,7 +73,7 @@ export function MaterialSelect({
   };
 
   return (
-    <div ref={containerRef} className="relative w-full">
+    <div ref={containerRef} className={clsx("relative w-full", open ? "z-50" : "z-0")}>
       <span className="mb-1 block text-xs font-medium tracking-wide text-[var(--md-on-surface-variant)]">
         {label}
       </span>
@@ -85,7 +85,7 @@ export function MaterialSelect({
         aria-controls={listboxId}
         onClick={handleToggle}
         onKeyDown={handleKeyDown}
-        className="flex w-full items-center justify-between rounded-xl border border-[var(--md-outline)] bg-[var(--md-surface-container)] px-3 py-2.5 text-left text-sm text-[var(--md-on-surface)] outline-none transition focus:border-[var(--md-primary)] focus:ring-2 focus:ring-[var(--md-primary)]/25"
+        className="select-surface flex w-full items-center justify-between rounded-xl border border-[var(--md-outline)] px-3 py-2.5 text-left text-sm text-[var(--md-on-surface)] outline-none transition focus:border-[var(--md-primary)] focus:ring-2 focus:ring-[var(--md-primary)]/25"
       >
         <span>{selected?.label ?? value}</span>
         <ChevronDown
@@ -98,7 +98,7 @@ export function MaterialSelect({
           id={listboxId}
           role="listbox"
           aria-label={label}
-          className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-xl border border-[var(--md-outline)] bg-[var(--md-surface-container-high)] py-1 shadow-lg"
+          className="select-surface absolute z-50 mt-1 max-h-56 w-full overflow-auto rounded-xl border border-[var(--md-outline)] py-1 shadow-lg"
         >
           {options.map((option) => {
             const active = option.value === value;
@@ -107,10 +107,10 @@ export function MaterialSelect({
                 <button
                   type="button"
                   className={clsx(
-                    "w-full px-3 py-2 text-left text-sm transition hover:bg-[var(--md-primary-container)]",
+                    "w-full px-3 py-2 text-left text-sm transition",
                     active
-                      ? "bg-[var(--md-primary-container)] text-[var(--md-on-primary-container)]"
-                      : "text-[var(--md-on-surface)]",
+                      ? "bg-[var(--md-menu-option-active)] text-[var(--md-on-primary-container)]"
+                      : "text-[var(--md-on-surface)] hover:bg-[var(--md-menu-option)]",
                   )}
                   onClick={() => handleSelect(option.value)}
                 >

@@ -194,8 +194,11 @@ body {
   @apply min-w-full text-left text-sm;
 }
 
-.data-table thead {
-  background: color-mix(in srgb, var(--md-surface-container-high) 80%, transparent);
+.data-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background-color: var(--md-menu-surface);
 }
 
 .data-table th {

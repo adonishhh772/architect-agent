@@ -1,5 +1,6 @@
-import { FINDING_CATEGORY, FINDING_STATUS, type Finding } from "@sentinel/schema";
+import { FINDING_CATEGORY, FINDING_DISPOSITION, FINDING_STATUS, type Finding } from "@sentinel/schema";
 import { useMemo, useState, type ChangeEvent } from "react";
+import { FindingDetailsPanel } from "./FindingDetailsPanel";
 import { HIGH_FINDING_RISK } from "../workspace/workspaceRunSummary";
 import { citedFileCount } from "./uniqueFindings";
 
@@ -16,6 +17,42 @@ const STATUS_LABEL: Record<(typeof FINDING_STATUS)[keyof typeof FINDING_STATUS],
   [FINDING_STATUS.ARCHITECTURE_CONCERN]: "Architecture",
   [FINDING_STATUS.INSUFFICIENT_EVIDENCE]: "Thin evidence",
 };
+
+type DispositionValue = (typeof FINDING_DISPOSITION)[keyof typeof FINDING_DISPOSITION];
+
+interface FindingsBoardProps {
+  findings: Finding[];
+  selectedFinding?: Finding;
+  onSelectFinding: (findingId: string) => void;
+  onDispositionChange?: (stableKey: string, disposition: DispositionValue) => void;
+}
+
+export function FindingsBoard({
+  findings,
+  selectedFinding,
+  onSelectFinding,
+  onDispositionChange,
+}: FindingsBoardProps): JSX.Element {
+  return (
+    <div
+      className={
+        selectedFinding
+          ? "grid min-w-0 gap-6 2xl:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.7fr)]"
+          : "min-w-0"
+      }
+      data-testid="findings-board"
+    >
+      <FindingsTable
+        findings={findings}
+        selectedFindingId={selectedFinding?.id}
+        onSelectFinding={onSelectFinding}
+      />
+      {selectedFinding ? (
+        <FindingDetailsPanel finding={selectedFinding} onDispositionChange={onDispositionChange} />
+      ) : null}
+    </div>
+  );
+}
 
 interface FindingsTableProps {
   findings: Finding[];
@@ -72,7 +109,7 @@ export function FindingsTable({
         data-testid="findings-table-scroll"
       >
         <table className="data-table">
-          <thead className="sticky top-0 z-10 bg-[var(--md-surface)]">
+          <thead>
             <tr>
               <th>Rank</th>
               <th>Title</th>

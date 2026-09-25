@@ -1,7 +1,7 @@
-import { ChevronRight, Trash2 } from "lucide-react";
+import { ChevronRight, Download, Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { PersistedReportRecord } from "../../persistence/indexedDbStore";
-import { DELETE_WORKSPACE_LABEL, DELETING_WORKSPACE_LABEL } from "../workspaceView";
+import { DELETE_WORKSPACE_LABEL, DELETING_WORKSPACE_LABEL, EXPORT_WORKSPACE_LABEL } from "../workspaceView";
 import {
   findingCountLabel,
   HIGH_FINDING_RISK,
@@ -16,6 +16,7 @@ interface RunHistoryProps {
   selectedRunId: string | null;
   error: string | null;
   onSelectRun: (runId: string) => void;
+  onExportRun: (runId: string) => void;
   onDeleteRun: (runId: string) => void;
   deletingRunId: string | null;
   openRunContent: ReactNode | null;
@@ -26,6 +27,7 @@ export function RunHistory({
   selectedRunId,
   error,
   onSelectRun,
+  onExportRun,
   onDeleteRun,
   deletingRunId,
   openRunContent,
@@ -49,6 +51,7 @@ export function RunHistory({
               run={run}
               selected={run.id === selectedRunId}
               onSelectRun={onSelectRun}
+              onExportRun={onExportRun}
               onDeleteRun={onDeleteRun}
               deleting={deletingRunId === run.id}
               openRunContent={run.id === selectedRunId ? openRunContent : null}
@@ -64,6 +67,7 @@ interface RunHistoryItemProps {
   run: PersistedReportRecord;
   selected: boolean;
   onSelectRun: (runId: string) => void;
+  onExportRun: (runId: string) => void;
   onDeleteRun: (runId: string) => void;
   deleting: boolean;
   openRunContent: ReactNode | null;
@@ -73,6 +77,7 @@ function RunHistoryItem({
   run,
   selected,
   onSelectRun,
+  onExportRun,
   onDeleteRun,
   deleting,
   openRunContent,
@@ -82,6 +87,10 @@ function RunHistoryItem({
 
   const handleSelect = (): void => {
     onSelectRun(run.id);
+  };
+
+  const handleExport = (): void => {
+    onExportRun(run.id);
   };
 
   const handleDelete = (): void => {
@@ -120,17 +129,29 @@ function RunHistoryItem({
           </span>
         </span>
       </button>
-      <button
-        type="button"
-        className="mr-3 mt-3 inline-flex shrink-0 items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-[var(--color-neon-pink)] hover:bg-[var(--color-neon-pink)]/10 disabled:opacity-50"
-        data-testid={`delete-workspace-${run.id}`}
-        aria-label={`${DELETE_WORKSPACE_LABEL} ${summary.title}`}
-        disabled={deleting}
-        onClick={handleDelete}
-      >
-        <Trash2 className="h-4 w-4" aria-hidden />
-        {deleting ? DELETING_WORKSPACE_LABEL : DELETE_WORKSPACE_LABEL}
-      </button>
+      <div className="mr-3 mt-3 flex shrink-0 items-center gap-1">
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-[var(--md-primary)] hover:bg-[var(--md-primary-container)]/40"
+          data-testid={`export-workspace-${run.id}`}
+          aria-label={`${EXPORT_WORKSPACE_LABEL} ${summary.title}`}
+          onClick={handleExport}
+        >
+          <Download className="h-4 w-4" aria-hidden />
+          {EXPORT_WORKSPACE_LABEL}
+        </button>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 rounded-full px-3 py-2 text-xs font-medium text-[var(--color-neon-pink)] hover:bg-[var(--color-neon-pink)]/10 disabled:opacity-50"
+          data-testid={`delete-workspace-${run.id}`}
+          aria-label={`${DELETE_WORKSPACE_LABEL} ${summary.title}`}
+          disabled={deleting}
+          onClick={handleDelete}
+        >
+          <Trash2 className="h-4 w-4" aria-hidden />
+          {deleting ? DELETING_WORKSPACE_LABEL : DELETE_WORKSPACE_LABEL}
+        </button>
+      </div>
       </div>
       {selected && openRunContent && (
         <div className="border-t border-[var(--md-outline)]/25 px-4 py-5" data-testid={`run-report-${run.id}`}>

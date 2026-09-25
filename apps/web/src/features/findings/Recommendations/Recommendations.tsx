@@ -1,5 +1,7 @@
 import type { AnalysisReport } from "@sentinel/schema";
 import { citationOmissionNote } from "@sentinel/analysis";
+import { ChevronDown } from "lucide-react";
+import { useState } from "react";
 
 interface RecommendationsProps {
   recommendations: AnalysisReport["recommendations"];
@@ -16,7 +18,7 @@ export function Recommendations({ recommendations, onSelectCitation }: Recommend
   }
 
   return (
-    <ol className="space-y-4" data-testid="recommendations">
+    <ol className="max-h-[32rem] space-y-4 overflow-y-auto pr-1" data-testid="recommendations">
       {collapseRecommendations(recommendations).map((recommendation) => (
         <RecommendationItem key={recommendation.id} recommendation={recommendation} onSelectCitation={onSelectCitation} />
       ))}
@@ -62,17 +64,51 @@ function collapseRecommendations(
 }
 
 function RecommendationItem({ recommendation, onSelectCitation }: RecommendationItemProps): JSX.Element {
+  const [open, setOpen] = useState(false);
   const citations = recommendation.citations ?? [];
+
+  function handleToggle(): void {
+    setOpen((current) => !current);
+  }
+
   return (
-    <li className="rounded-xl border border-[var(--md-outline)]/25 bg-[var(--md-surface-container-high)]/40 p-4" data-testid={`recommendation-${recommendation.id}`}>
-      <p className="text-xs font-semibold uppercase tracking-wider text-[var(--md-primary)]">Priority {recommendation.priority}</p>
-      <h3 className="mt-1 font-display text-lg font-semibold text-[var(--md-on-surface)]">{recommendation.title}</h3>
-      <p className="mt-2 text-sm leading-relaxed text-[var(--md-on-surface-variant)]">{recommendation.description}</p>
-      <CitedFiles
-        citations={citations}
-        omittedFileCount={recommendation.omittedFileCount ?? 0}
-        onSelectCitation={onSelectCitation}
-      />
+    <li
+      className="rounded-xl border border-[var(--md-outline)]/25 bg-[var(--md-surface-container-high)]/40"
+      data-testid={`recommendation-${recommendation.id}`}
+    >
+      <button
+        type="button"
+        className="flex w-full items-start justify-between gap-3 p-4 text-left"
+        aria-expanded={open}
+        data-testid={`recommendation-toggle-${recommendation.id}`}
+        onClick={handleToggle}
+      >
+        <span>
+          <span className="text-xs font-semibold uppercase tracking-wider text-[var(--md-primary)]">
+            Priority {recommendation.priority}
+          </span>
+          <span className="mt-1 block font-display text-lg font-semibold text-[var(--md-on-surface)]">
+            {recommendation.title}
+          </span>
+        </span>
+        <ChevronDown
+          className={`mt-1 h-4 w-4 shrink-0 text-[var(--md-primary)] transition ${open ? "rotate-180" : ""}`}
+          aria-hidden
+        />
+      </button>
+      {open && (
+        <div className="px-4 pb-4" data-testid={`recommendation-detail-${recommendation.id}`}>
+          <p className="text-sm leading-relaxed text-[var(--md-on-surface-variant)]">{recommendation.description}</p>
+          {recommendation.rationale && (
+            <p className="mt-2 text-sm leading-relaxed text-[var(--md-on-surface-variant)]">{recommendation.rationale}</p>
+          )}
+          <CitedFiles
+            citations={citations}
+            omittedFileCount={recommendation.omittedFileCount ?? 0}
+            onSelectCitation={onSelectCitation}
+          />
+        </div>
+      )}
     </li>
   );
 }

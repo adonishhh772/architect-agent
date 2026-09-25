@@ -5,8 +5,7 @@ import { FINDING_STATUS, type Finding } from "@sentinel/schema";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
-import { FindingDetailsPanel } from "./FindingDetailsPanel";
-import { FindingsTable } from "./FindingsTable";
+import { FindingsBoard } from "./FindingsTable";
 
 const FIRST_TITLE = "HTTP route has no authentication check nearby";
 const SECOND_TITLE = "Database role is broader than the route needs";
@@ -41,6 +40,8 @@ describe("findings table selection", () => {
     const scrollRegion = container.querySelector("[data-testid='findings-table-scroll']");
     expect(scrollRegion?.className).toContain("overflow-auto");
     expect(scrollRegion?.className).toContain("max-h-[32rem]");
+    expect(container.querySelector("[data-testid='finding-details-empty']")).toBeNull();
+    expect(container.querySelector("[data-testid='finding-details']")).toBeNull();
 
     const secondRow = container.querySelectorAll("tbody tr")[1];
     if (!(secondRow instanceof HTMLElement)) {
@@ -65,8 +66,11 @@ function FindingsPreview({ findings }: { findings: Finding[] }): JSX.Element {
 
   return (
     <div>
-      <FindingsTable findings={findings} selectedFindingId={selectedFindingId} onSelectFinding={handleSelectFinding} />
-      <FindingDetailsPanel finding={selectedFinding} />
+      <FindingsBoard
+        findings={findings}
+        selectedFinding={selectedFinding}
+        onSelectFinding={handleSelectFinding}
+      />
     </div>
   );
 }

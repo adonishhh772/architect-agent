@@ -33,7 +33,7 @@ export function StrideThreatModelPanel({
   }
 
   return (
-    <section className="md-elevated-card space-y-4" data-testid="stride-threat-model">
+    <section className="surface-inset space-y-4" data-testid="stride-threat-model">
       <div className="flex items-center gap-2">
         <Shield className="h-5 w-5 text-[var(--color-neon-pink)]" aria-hidden />
         <h3 className="text-lg font-semibold text-[var(--md-on-surface)]">STRIDE threat model</h3>

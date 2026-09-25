@@ -53,7 +53,7 @@ function ReportAccordionSection({
     <section
       className={`md-elevated-card overflow-hidden transition ${
         open
-          ? "border-[var(--md-primary)]/50 bg-[var(--md-surface-container)] shadow-lg"
+          ? "border-[var(--md-primary)]/45 bg-[var(--md-surface-container)]"
           : "border-[var(--md-outline)]/20 bg-[var(--md-surface-container)]/70"
       }`}
       data-testid={`accordion-${item.id}`}

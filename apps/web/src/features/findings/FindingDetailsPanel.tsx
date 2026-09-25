@@ -19,7 +19,7 @@ export function FindingDetailsPanel({ finding, onDispositionChange }: FindingDet
   if (!finding) {
     return (
       <div
-        className="md-elevated-card flex min-h-[280px] flex-col items-center justify-center text-center"
+        className="surface-inset flex min-h-[280px] flex-col items-center justify-center text-center"
         data-testid="finding-details-empty"
       >
         <FileSearch className="mb-3 h-10 w-10 text-[var(--md-on-surface-variant)]" aria-hidden />
@@ -39,7 +39,7 @@ export function FindingDetailsPanel({ finding, onDispositionChange }: FindingDet
   }
 
   return (
-    <article className="md-elevated-card space-y-4" data-testid="finding-details">
+    <article className="surface-inset space-y-4" data-testid="finding-details">
       <header>
         <p className="text-xs font-semibold uppercase tracking-wider text-[var(--md-on-surface-variant)]">
           {finding.id}
@@ -69,7 +69,11 @@ export function FindingDetailsPanel({ finding, onDispositionChange }: FindingDet
               type="button"
               data-disposition={disposition}
               data-testid={`disposition-${disposition}`}
-              className="rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ring-1 ring-[var(--md-outline)]/40"
+              className={`meta-pill px-3 py-1 uppercase ring-1 ${
+                finding.disposition === disposition
+                  ? "bg-[var(--md-primary)] text-[var(--md-on-primary)] ring-[var(--md-primary)]"
+                  : "bg-transparent text-[var(--md-on-surface)] ring-[var(--md-outline)]/40"
+              }`}
               onClick={handleDispositionClick}
             >
               {disposition.split("_").join(" ")}

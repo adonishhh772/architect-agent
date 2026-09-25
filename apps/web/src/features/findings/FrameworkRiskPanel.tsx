@@ -24,7 +24,7 @@ export function FrameworkRiskPanel({
   const counts = useMemo(() => countFrameworkTags(report.findings), [report.findings]);
 
   return (
-    <section className="md-elevated-card space-y-4" data-testid="framework-risk-panel">
+    <section className="surface-inset space-y-4" data-testid="framework-risk-panel">
       <div className="flex items-center gap-2">
         <ShieldAlert className="h-5 w-5 text-[var(--color-neon-purple)]" aria-hidden />
         <h3 className="text-lg font-semibold text-[var(--md-on-surface)]">OWASP, ATLAS, data, and infrastructure</h3>

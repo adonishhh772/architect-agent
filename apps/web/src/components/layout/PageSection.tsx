@@ -22,7 +22,7 @@ export function PageSection({
   return (
     <section
       className={clsx(
-        "md-elevated-card relative overflow-hidden border-[var(--md-outline)]/25 bg-[var(--md-surface-container)]/90 backdrop-blur-sm",
+        "feature-surface md-elevated-card relative overflow-hidden border-[var(--md-outline)]/25 bg-[var(--md-surface-container)]/90 backdrop-blur-sm",
         className,
       )}
       data-testid={testId}

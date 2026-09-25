@@ -90,10 +90,10 @@ function RunHistoryItem({
 
   return (
     <li
-      className={`overflow-hidden rounded-2xl border ${
+      className={`overflow-hidden rounded-2xl border transition duration-200 ${
         selected
-          ? "border-[var(--md-primary)]/50 bg-[var(--md-surface-container)] shadow-lg"
-          : "border-[var(--md-outline)]/30 bg-[var(--md-surface-container-high)]/40"
+          ? "border-[var(--md-primary)]/50 bg-[var(--md-surface-container)] shadow-[var(--sentinel-card-shadow)]"
+          : "border-[var(--md-outline)]/30 bg-[var(--md-surface-container-high)]/40 hover:border-[var(--md-primary)]/35"
       }`}
     >
       <div className="flex items-start">

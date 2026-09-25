@@ -188,7 +188,7 @@ export function AppShell({ children }: AppShellProps): JSX.Element {
             {sidebarCollapsed ? (
               <PanelLeftOpen className="h-4 w-4" aria-hidden />
             ) : (
-              <PanelLeftClose className="mr-2 h-4 w-4" aria-hidden />
+              <PanelLeftClose className="h-4 w-4" aria-hidden />
             )}
             {sidebarCollapsed ? <span className="sr-only">{EXPAND_MENU_LABEL}</span> : MINIMIZE_MENU_LABEL}
           </button>
@@ -238,7 +238,7 @@ function PrimaryNavLink({ item, active, collapsed, onNavigate }: PrimaryNavLinkP
       title={item.label}
       data-testid={`nav-${item.label.toLowerCase()}`}
       className={clsx(
-        "flex items-center rounded-xl px-3 py-2 text-sm transition",
+        "flex items-center rounded-full px-3 py-2.5 text-sm transition duration-200",
         collapsed ? "justify-center" : "gap-2",
         active
           ? "nav-active"
@@ -263,7 +263,7 @@ function ThemeToggle({ theme, collapsed, onToggleTheme }: ThemeToggleProps): JSX
   return (
     <button type="button" className={clsx("glass-button w-full", collapsed && "!px-2")} onClick={onToggleTheme}>
       {dark ? <Sun className="h-4 w-4" aria-hidden /> : <Moon className="h-4 w-4" aria-hidden />}
-      {collapsed ? <span className="sr-only">Toggle theme</span> : <span className="ml-2">Toggle theme</span>}
+      {collapsed ? <span className="sr-only">Toggle theme</span> : <span>Toggle theme</span>}
     </button>
   );
 }

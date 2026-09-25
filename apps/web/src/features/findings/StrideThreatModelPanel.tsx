@@ -3,6 +3,7 @@ import { STRIDE_CATEGORY } from "@sentinel/schema";
 import { Shield } from "lucide-react";
 import { useMemo, useState } from "react";
 import { splitSummarySentences } from "./strideSummary";
+import { collapseFindingsByTitle } from "./uniqueFindings";
 
 const STRIDE_LABELS: Record<(typeof STRIDE_CATEGORY)[keyof typeof STRIDE_CATEGORY], string> = {
   [STRIDE_CATEGORY.SPOOFING]: "Spoofing",
@@ -24,7 +25,10 @@ export function StrideThreatModelPanel({
   report,
   onSelectFinding,
 }: StrideThreatModelPanelProps): JSX.Element {
-  const findingsByStride = useMemo(() => groupFindingsByStride(report.findings), [report.findings]);
+  const findingsByStride = useMemo(
+    () => groupFindingsByStride(collapseFindingsByTitle(report.findings)),
+    [report.findings],
+  );
   const sentences = splitSummarySentences(report.executiveSummary);
   const [openStride, setOpenStride] = useState<string>(STRIDE_CATEGORY.SPOOFING);
 

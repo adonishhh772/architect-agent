@@ -1,4 +1,5 @@
 export const REPORT_SECTION = {
+  SUMMARY: "audit-summary",
   MAP: "architecture-map",
   OVERVIEW: "repository-overview",
   STRIDE: "stride",

@@ -39,12 +39,12 @@ export function FindingDetailsPanel({ finding, onDispositionChange }: FindingDet
   }
 
   return (
-    <article className="surface-inset space-y-4" data-testid="finding-details">
+    <article className="surface-inset max-h-[70vh] min-w-0 space-y-4 overflow-y-auto break-words" data-testid="finding-details">
       <header>
-        <p className="text-xs font-semibold uppercase tracking-wider text-[var(--md-on-surface-variant)]">
+        <p className="break-all text-xs font-semibold uppercase tracking-wider text-[var(--md-on-surface-variant)]">
           {finding.id}
         </p>
-        <h3 className="font-display mt-1 text-xl font-semibold text-[var(--md-on-surface)]">{finding.title}</h3>
+        <h3 className="font-display mt-1 break-words text-xl font-semibold text-[var(--md-on-surface)]">{finding.title}</h3>
       </header>
       <p className="text-sm leading-relaxed text-[var(--md-on-surface-variant)]">{finding.scenario}</p>
       {(finding.cweIds ?? []).length > 0 && (

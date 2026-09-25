@@ -1,13 +1,27 @@
 import { describe, expect, it } from "vitest";
 import type { Finding } from "@sentinel/schema";
 import { FINDING_STATUS } from "@sentinel/schema";
-import { citedFileCount, uniqueFindings } from "./uniqueFindings";
+import { citedFileCount, collapseFindingsByTitle, uniqueFindings } from "./uniqueFindings";
 
 describe("uniqueFindings", () => {
   it("keeps one finding and drops duplicates of the same vulnerability", () => {
     const primary = sampleFinding("primary", "eval-a");
     const duplicate = { ...sampleFinding("copy", "eval-b"), duplicateOfStableKey: "eval-a" };
     expect(uniqueFindings([primary, duplicate]).map((finding) => finding.id)).toEqual(["primary"]);
+  });
+});
+
+describe("collapseFindingsByTitle", () => {
+  it("keeps one row when the same title was reported for several windows", () => {
+    const first = sampleFinding("first", "route-a");
+    first.title = "HTTP route has no authentication check nearby";
+    first.references = [{ path: "src/a.ts", startLine: 4 }];
+    const second = sampleFinding("second", "route-b");
+    second.title = "HTTP route has no authentication check nearby";
+    second.references = [{ path: "src/b.ts", startLine: 9 }];
+    const collapsed = collapseFindingsByTitle([first, second]);
+    expect(collapsed).toHaveLength(1);
+    expect(citedFileCount(collapsed[0] ?? first)).toBe(2);
   });
 });
 

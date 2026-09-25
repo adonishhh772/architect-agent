@@ -63,6 +63,24 @@ export function describeFileRead(path: string): string {
   return `Reading ${path}.`;
 }
 
+const WINDOW_HEADER = /^(.+):(\d+)-(\d+)$/;
+
+export function describeWindowRead(path: string, startLine: number, endLine: number): string {
+  if (startLine === endLine) {
+    return `Reading ${path}, line ${startLine}.`;
+  }
+  return `Reading ${path}, lines ${startLine}-${endLine}.`;
+}
+
+export function describeObservationWindow(text: string, fallbackPath: string): string {
+  const header = text.split("\n")[0] ?? "";
+  const match = WINDOW_HEADER.exec(header);
+  if (!match) {
+    return describeFileRead(fallbackPath);
+  }
+  return describeWindowRead(match[1] ?? fallbackPath, Number(match[2]), Number(match[3]));
+}
+
 export function describeRemainingFileReads(hiddenCount: number): string {
   if (hiddenCount === 1) {
     return "Reading 1 more file.";

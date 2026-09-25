@@ -1,8 +1,9 @@
 import type { AnalysisReport, Finding } from "@sentinel/schema";
 import { RISK_DOMAIN } from "@sentinel/schema";
 import { ShieldAlert } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { countFrameworkTags, groupFindingsByRiskDomain } from "./frameworkGroups";
+import { collapseFindingsByTitle } from "./uniqueFindings";
 
 const RISK_DOMAIN_LABELS: Record<(typeof RISK_DOMAIN)[keyof typeof RISK_DOMAIN], string> = {
   [RISK_DOMAIN.CYBERSECURITY]: "Cybersecurity",
@@ -20,7 +21,10 @@ export function FrameworkRiskPanel({
   report,
   onSelectFinding,
 }: FrameworkRiskPanelProps): JSX.Element {
-  const groups = useMemo(() => groupFindingsByRiskDomain(report.findings), [report.findings]);
+  const groups = useMemo(
+    () => groupFindingsByRiskDomain(collapseFindingsByTitle(report.findings)),
+    [report.findings],
+  );
   const counts = useMemo(() => countFrameworkTags(report.findings), [report.findings]);
 
   return (
@@ -58,18 +62,7 @@ export function FrameworkRiskPanel({
           />
         ))}
       </div>
-      {report.agentTrace.length > 0 && (
-        <div data-testid="agent-trace">
-          <h4 className="text-sm font-semibold text-[var(--md-on-surface)]">Agent trace</h4>
-          <ul className="mt-2 space-y-1 text-sm text-[var(--md-on-surface-variant)]">
-            {report.agentTrace.map((entry) => (
-              <li key={entry.agentId}>
-                {entry.agentId}: {entry.status} — {entry.detail}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {report.agentTrace.length > 0 && <AgentTrace entries={report.agentTrace} />}
     </section>
   );
 }
@@ -132,6 +125,41 @@ function FindingChoice({ finding, onSelectFinding }: FindingChoiceProps): JSX.El
         )}
       </button>
     </li>
+  );
+}
+
+function AgentTrace({ entries }: { entries: AnalysisReport["agentTrace"] }): JSX.Element {
+  const [open, setOpen] = useState(false);
+
+  function handleToggle(): void {
+    setOpen((current) => !current);
+  }
+
+  return (
+    <div className="rounded-xl border border-[var(--md-outline)]/30" data-testid="agent-trace">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-semibold text-[var(--md-on-surface)]"
+        aria-expanded={open}
+        onClick={handleToggle}
+      >
+        Agent trace
+        <span className="font-normal text-[var(--md-on-surface-variant)]">{entries.length} steps</span>
+      </button>
+      {open && (
+        <ul className="max-h-64 space-y-2 overflow-y-auto border-t border-[var(--md-outline)]/20 px-4 py-3 text-sm text-[var(--md-on-surface-variant)]">
+          {entries.map((entry, index) => (
+            <li key={`${entry.agentId}-${index}`}>
+              <span className="font-medium text-[var(--md-on-surface)]">{entry.agentId}</span>
+              {": "}
+              {entry.status}
+              {" — "}
+              {entry.detail}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 

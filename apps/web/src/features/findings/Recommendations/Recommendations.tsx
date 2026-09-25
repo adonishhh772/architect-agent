@@ -17,7 +17,7 @@ export function Recommendations({ recommendations, onSelectCitation }: Recommend
 
   return (
     <ol className="space-y-4" data-testid="recommendations">
-      {recommendations.map((recommendation) => (
+      {collapseRecommendations(recommendations).map((recommendation) => (
         <RecommendationItem key={recommendation.id} recommendation={recommendation} onSelectCitation={onSelectCitation} />
       ))}
     </ol>
@@ -27,6 +27,38 @@ export function Recommendations({ recommendations, onSelectCitation }: Recommend
 interface RecommendationItemProps {
   recommendation: AnalysisReport["recommendations"][number];
   onSelectCitation: (path: string) => void;
+}
+
+function collapseRecommendations(
+  recommendations: AnalysisReport["recommendations"],
+): AnalysisReport["recommendations"] {
+  const grouped = new Map<string, AnalysisReport["recommendations"][number]>();
+  for (const recommendation of recommendations) {
+    const titleKey = recommendation.title.trim().toLowerCase();
+    const existing = grouped.get(titleKey);
+    if (!existing) {
+      grouped.set(titleKey, {
+        ...recommendation,
+        citations: [...(recommendation.citations ?? [])],
+        relatedFindingIds: [...recommendation.relatedFindingIds],
+      });
+      continue;
+    }
+    const citations = [...(existing.citations ?? [])];
+    for (const citation of recommendation.citations ?? []) {
+      const alreadyCited = citations.some((item) => item.path === citation.path && item.startLine === citation.startLine);
+      if (!alreadyCited) {
+        citations.push(citation);
+      }
+    }
+    grouped.set(titleKey, {
+      ...existing,
+      citations,
+      relatedFindingIds: [...existing.relatedFindingIds, ...recommendation.relatedFindingIds],
+      omittedFileCount: (existing.omittedFileCount ?? 0) + (recommendation.omittedFileCount ?? 0),
+    });
+  }
+  return [...grouped.values()];
 }
 
 function RecommendationItem({ recommendation, onSelectCitation }: RecommendationItemProps): JSX.Element {

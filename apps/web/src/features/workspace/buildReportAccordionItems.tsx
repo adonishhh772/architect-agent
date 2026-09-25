@@ -13,11 +13,12 @@ import { FollowUpCopilot } from "../copilot/FollowUpCopilot";
 import { FindingDetailsPanel } from "../findings/FindingDetailsPanel";
 import { FindingsTable } from "../findings/FindingsTable";
 import { Recommendations } from "../findings/Recommendations";
-import { uniqueFindings } from "../findings/uniqueFindings";
+import { collapseFindingsByTitle } from "../findings/uniqueFindings";
 import { FrameworkRiskPanel } from "../findings/FrameworkRiskPanel";
 import { PullRequestReview } from "../findings/PullRequestReview";
 import { StrideThreatModelPanel } from "../findings/StrideThreatModelPanel";
 import { MermaidDiagram } from "../graph/MermaidDiagram";
+import { SummaryBlocks } from "./SummaryBlocks";
 import { findingsForMapLabel } from "../graph/mapSelection";
 
 interface ReportAccordionInput {
@@ -44,6 +45,14 @@ interface ReportAccordionInput {
 
 export function buildReportAccordionItems(input: ReportAccordionInput): ReportAccordionItem[] {
   const items: ReportAccordionItem[] = [
+    {
+      id: REPORT_SECTION.SUMMARY,
+      title: "Summary",
+      description: "The threat model written from the code reader notes and the later agents.",
+      content: (
+        <SummaryBlocks text={input.report.executiveSummary} />
+      ),
+    },
     {
       id: REPORT_SECTION.MAP,
       title: "Architecture map",
@@ -100,9 +109,9 @@ export function buildReportAccordionItems(input: ReportAccordionInput): ReportAc
     title: "Findings",
     description: "Filter the evidence and open one finding at a time.",
     content: (
-      <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+      <div className="grid min-w-0 gap-6 2xl:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.7fr)]">
         <FindingsTable
-          findings={uniqueFindings(input.report.findings)}
+          findings={collapseFindingsByTitle(input.report.findings)}
           selectedFindingId={input.selectedFindingId}
           onSelectFinding={input.onSelectFinding}
         />
@@ -245,7 +254,7 @@ function CoverageExport({
 
   return (
     <div>
-      <p className="text-sm leading-relaxed text-[var(--md-on-surface-variant)]">{report.executiveSummary}</p>
+      <SummaryBlocks text={report.executiveSummary} />
       <ul className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {stats.map((stat) => (
           <CoverageStat key={stat.label} label={stat.label} value={stat.value} />

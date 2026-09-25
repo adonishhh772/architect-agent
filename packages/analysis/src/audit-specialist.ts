@@ -39,6 +39,7 @@ import {
   AGENT_ACTIVITY_TEXT,
   AGENT_STEP_KIND,
   describeEvidenceRead,
+  describeObservationWindow,
   describeFileRead,
   describeRemainingFileReads,
   LIVE_FILE_READ_LIMIT,
@@ -476,7 +477,14 @@ async function readOneCodeWindow(options: AuditSpecialistOptions): Promise<Audit
 
 async function completeCodeWindow(options: AuditSpecialistOptions, selection: EvidenceSelection): Promise<AuditSpecialistResult> {
   const selected = selection.paths;
-  await publishFileReads(options, selected);
+  const windowText = selection.observations[0]?.text ?? "";
+  reportAgentStep(
+    options,
+    AGENT_ACTIVITY_STATUS.RUNNING,
+    AGENT_STEP_KIND.ACTION,
+    describeObservationWindow(windowText, selected[0] ?? "file"),
+  );
+  await waitForLivePaint();
   reportAgentStep(options, AGENT_ACTIVITY_STATUS.RUNNING, AGENT_STEP_KIND.ACTION, AGENT_ACTIVITY_TEXT.CALLING_WINDOW);
   await waitForLivePaint();
 

@@ -3,6 +3,8 @@ import { AUDIT_AGENT } from "@sentinel/schema";
 import {
   describeEvidenceRead,
   describeFileRead,
+  describeWindowRead,
+  describeObservationWindow,
   describeRemainingFileReads,
   describePassOutcome,
   describeThinking,
@@ -34,6 +36,15 @@ describe("describeFileRead", () => {
   it("counts the files that are not listed one by one", () => {
     expect(describeRemainingFileReads(1)).toBe("Reading 1 more file.");
     expect(describeRemainingFileReads(3)).toBe("Reading 3 more files.");
+  });
+});
+
+describe("describeWindowRead", () => {
+  it("names the line range of one code reader window", () => {
+    expect(describeWindowRead("backend/app/main.py", 40, 68)).toBe("Reading backend/app/main.py, lines 40-68.");
+    expect(describeObservationWindow("backend/app/main.py:40-68\nclass App:", "backend/app/main.py")).toBe(
+      "Reading backend/app/main.py, lines 40-68.",
+    );
   });
 });
 

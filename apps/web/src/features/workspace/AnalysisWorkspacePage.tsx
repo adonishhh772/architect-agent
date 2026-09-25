@@ -28,6 +28,7 @@ import { exportReportHtml, exportReportJson, exportReportMarkdown, exportReportS
 import { rememberDisposition } from "@sentinel/analysis";
 import { REPORT_SECTION } from "../../components/layout/ReportAccordion";
 import { OpenWorkspaceReport } from "./OpenWorkspaceReport";
+import { SummaryBlocks } from "./SummaryBlocks";
 import { useRepositoryIngestion } from "../ingest/useRepositoryIngestion";
 import { parseGitHubRepositoryUrl } from "@sentinel/ingestion";
 import { deleteSavedReport, listSavedReports, saveReportLocally, type PersistedReportRecord } from "../persistence/indexedDbStore";
@@ -295,6 +296,7 @@ export function AnalysisWorkspacePage(): JSX.Element {
       await refreshSavedRuns();
       await persistIndexedRepository(store, sourceLabel, commitSha, repoUrl, completed.report);
       setWorkspaceView(WORKSPACE_VIEW.INSPECT);
+      setOpenReportSection(REPORT_SECTION.SUMMARY);
       setStatusMessage(
         `Threat model complete — ${completed.report.findings.length} findings (${completed.report.budget.requestsUsed} AI requests, ${completed.report.budget.tokensUsed} tokens).`,
       );
@@ -900,6 +902,12 @@ export function AnalysisWorkspacePage(): JSX.Element {
             <p className="mt-3 text-sm text-[var(--md-on-surface-variant)]" data-testid="workspace-status">
               {ingestion.error ?? statusMessage}
             </p>
+          )}
+          {report && !runner.isRunning && (
+            <div className="mt-4 space-y-2" data-testid="audit-summary-preview">
+              <h3 className="text-sm font-semibold text-[var(--md-on-surface)]">Summary</h3>
+              <SummaryBlocks text={report.executiveSummary} />
+            </div>
           )}
         </PageSection>
       )}

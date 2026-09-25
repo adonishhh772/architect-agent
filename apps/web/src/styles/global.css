@@ -197,7 +197,7 @@ body {
 }
 
 .data-table td {
-  @apply px-3 py-3 text-[var(--md-on-surface)];
+  @apply px-3 py-3 align-top text-[var(--md-on-surface)];
 }
 
 .data-table tbody tr {
@@ -230,7 +230,7 @@ body {
 }
 
 .meta-pill {
-  @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium tracking-wide;
+  @apply inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium tracking-wide;
 }
 
 @media (prefers-reduced-motion: reduce) {

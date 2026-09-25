@@ -1,4 +1,4 @@
-import { FINDING_CATEGORY, type Finding } from "@sentinel/schema";
+import { FINDING_CATEGORY, FINDING_STATUS, type Finding } from "@sentinel/schema";
 import { useMemo, useState, type ChangeEvent } from "react";
 import { HIGH_FINDING_RISK } from "../workspace/workspaceRunSummary";
 import { citedFileCount } from "./uniqueFindings";
@@ -9,6 +9,13 @@ const FINDINGS_FILTER = {
 
 const EMPTY_FILTER_MESSAGE = "No findings match this filter.";
 const MODERATE_FINDING_RISK = 9;
+
+const STATUS_LABEL: Record<(typeof FINDING_STATUS)[keyof typeof FINDING_STATUS], string> = {
+  [FINDING_STATUS.CODE_SUPPORTED]: "Code supported",
+  [FINDING_STATUS.PLAUSIBLE_THREAT]: "Needs check",
+  [FINDING_STATUS.ARCHITECTURE_CONCERN]: "Architecture",
+  [FINDING_STATUS.INSUFFICIENT_EVIDENCE]: "Thin evidence",
+};
 
 interface FindingsTableProps {
   findings: Finding[];
@@ -113,21 +120,32 @@ function FindingRow({ finding, selected, onSelectFinding }: FindingRowProps): JS
       className={`cursor-pointer ${selected ? "bg-[var(--md-primary-container)]/55" : ""}`}
       onClick={handleClick}
     >
-      <td>{finding.remediationRank ?? "—"}</td>
-      <td className="font-medium">{finding.title}</td>
-      <td>{citedFileCount(finding)}</td>
-      <td>
+      <td className="whitespace-nowrap">{finding.remediationRank ?? "—"}</td>
+      <td className="min-w-64 max-w-md font-medium">{finding.title}</td>
+      <td className="whitespace-nowrap">{citedFileCount(finding)}</td>
+      <td className="whitespace-nowrap">
         <span className={`meta-pill ${riskPillClass(finding.riskScore)}`}>{finding.riskScore ?? "—"}</span>
       </td>
-      <td>{readableLabel(finding.lifecycle ?? "open")}</td>
-      <td>{readableLabel(finding.category)}</td>
-      <td>
+      <td className="whitespace-nowrap">{readableLabel(finding.lifecycle ?? "open")}</td>
+      <td className="whitespace-nowrap">{readableLabel(finding.category)}</td>
+      <td className="whitespace-nowrap">
         <span className="meta-pill bg-[var(--md-primary-container)] text-[var(--md-on-primary-container)]">
-          {readableLabel(finding.status)}
+          {statusLabel(finding.status)}
         </span>
       </td>
     </tr>
   );
+}
+
+function statusLabel(status: string): string {
+  if (isKnownStatus(status)) {
+    return STATUS_LABEL[status];
+  }
+  return readableLabel(status);
+}
+
+function isKnownStatus(status: string): status is keyof typeof STATUS_LABEL {
+  return Object.values(FINDING_STATUS).some((knownStatus) => knownStatus === status);
 }
 
 function readableLabel(value: string): string {

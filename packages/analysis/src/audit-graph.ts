@@ -19,6 +19,7 @@ import { runAuditSpecialist } from "./audit-specialist.js";
 import { buildAuditMemory } from "./audit-memory.js";
 import { resolveAttackPaths, verifyAuditFindings } from "./audit-verifier.js";
 import { listUnreadPaths } from "./coverage-queue.js";
+import { mapWithConcurrency } from "./map-with-concurrency.js";
 import {
   AUDIT_LIMITS,
   buildPathManifest,
@@ -27,6 +28,14 @@ import {
 import type { InvestigationToolContext } from "./investigation-tools.js";
 
 const VERIFIER_DETAIL = "Citations checked against the indexed snapshot and linked to module nodes.";
+const RISK_REVIEW_NODE = "risk_review";
+const RISK_AGENTS = [
+  AUDIT_AGENT.STRIDE,
+  AUDIT_AGENT.OWASP,
+  AUDIT_AGENT.ATLAS,
+  AUDIT_AGENT.DATA,
+  AUDIT_AGENT.INFRASTRUCTURE,
+] as const;
 
 const AuditAnnotation = Annotation.Root({
   architectureBrief: Annotation<string>({
@@ -144,33 +153,16 @@ function buildAuditGraph(
   graphSummary: string,
   manifest: string,
 ) {
-  const specialists = [
-    AUDIT_AGENT.CARTOGRAPHER,
-    AUDIT_AGENT.STRIDE,
-    AUDIT_AGENT.OWASP,
-    AUDIT_AGENT.ATLAS,
-    AUDIT_AGENT.DATA,
-    AUDIT_AGENT.INFRASTRUCTURE,
-  ] as const;
-
   const graph = new StateGraph(AuditAnnotation)
-    .addNode(AUDIT_AGENT.CARTOGRAPHER, createSpecialistNode(options, specialists[0], graphSummary, manifest))
+    .addNode(AUDIT_AGENT.CARTOGRAPHER, createSpecialistNode(options, AUDIT_AGENT.CARTOGRAPHER, graphSummary, manifest))
     .addNode(AUDIT_AGENT.CODE_READER, createCodeReaderNode(options, graphSummary, manifest))
-    .addNode(AUDIT_AGENT.STRIDE, createSpecialistNode(options, specialists[1], graphSummary, manifest))
-    .addNode(AUDIT_AGENT.OWASP, createSpecialistNode(options, specialists[2], graphSummary, manifest))
-    .addNode(AUDIT_AGENT.ATLAS, createSpecialistNode(options, specialists[3], graphSummary, manifest))
-    .addNode(AUDIT_AGENT.DATA, createSpecialistNode(options, specialists[4], graphSummary, manifest))
-    .addNode(AUDIT_AGENT.INFRASTRUCTURE, createSpecialistNode(options, specialists[5], graphSummary, manifest))
+    .addNode(RISK_REVIEW_NODE, createParallelRiskNode(options, graphSummary, manifest))
     .addNode(AUDIT_AGENT.PULL_REQUEST, createSpecialistNode(options, AUDIT_AGENT.PULL_REQUEST, graphSummary, manifest))
     .addNode(AUDIT_AGENT.VERIFIER, createVerifierNode(options))
     .addEdge(START, AUDIT_AGENT.CODE_READER)
     .addConditionalEdges(AUDIT_AGENT.CODE_READER, routeAfterCodeReader)
-    .addEdge(AUDIT_AGENT.CARTOGRAPHER, AUDIT_AGENT.STRIDE)
-    .addEdge(AUDIT_AGENT.STRIDE, AUDIT_AGENT.OWASP)
-    .addEdge(AUDIT_AGENT.OWASP, AUDIT_AGENT.ATLAS)
-    .addEdge(AUDIT_AGENT.ATLAS, AUDIT_AGENT.DATA)
-    .addEdge(AUDIT_AGENT.DATA, AUDIT_AGENT.INFRASTRUCTURE)
-    .addEdge(AUDIT_AGENT.INFRASTRUCTURE, AUDIT_AGENT.PULL_REQUEST)
+    .addEdge(AUDIT_AGENT.CARTOGRAPHER, RISK_REVIEW_NODE)
+    .addEdge(RISK_REVIEW_NODE, AUDIT_AGENT.PULL_REQUEST)
     .addEdge(AUDIT_AGENT.PULL_REQUEST, AUDIT_AGENT.VERIFIER)
     .addEdge(AUDIT_AGENT.VERIFIER, END);
 
@@ -183,49 +175,80 @@ function createSpecialistNode(
   graphSummary: string,
   manifest: string,
 ) {
+  return function specialistNode(state: AuditGraphState): Promise<Partial<AuditGraphState>> {
+    return runNamedSpecialist(options, agentId, graphSummary, manifest, state);
+  };
+}
+
+function createParallelRiskNode(
+  options: MultiAgentAuditOptions,
+  graphSummary: string,
+  manifest: string,
+) {
+  const concurrency = options.provider.settings.maxConcurrency ?? 2;
+  return async function riskNode(state: AuditGraphState): Promise<Partial<AuditGraphState>> {
+    const updates = await mapWithConcurrency(RISK_AGENTS, concurrency, (agentId) =>
+      runNamedSpecialist(options, agentId, graphSummary, manifest, state),
+    );
+    return {
+      findings: updates.flatMap((update) => update.findings ?? []),
+      attackPaths: updates.flatMap((update) => update.attackPaths ?? []),
+      agentTrace: updates.flatMap((update) => update.agentTrace ?? []),
+      overviewParts: updates.flatMap((update) => update.overviewParts ?? []),
+      pathsRead: updates.flatMap((update) => update.pathsRead ?? []),
+      pathsPartial: updates.flatMap((update) => update.pathsPartial ?? []),
+    };
+  };
+}
+
+async function runNamedSpecialist(
+  options: MultiAgentAuditOptions,
+  agentId: (typeof AUDIT_AGENT_ORDER)[number],
+  graphSummary: string,
+  manifest: string,
+  state: AuditGraphState,
+): Promise<Partial<AuditGraphState>> {
   const phaseIndex = AUDIT_AGENT_ORDER.indexOf(agentId);
-  return async function specialistNode(state: AuditGraphState): Promise<Partial<AuditGraphState>> {
-    options.onPhase?.(`Agent: ${agentId}`, phaseIndex + 1, AUDIT_AGENT_ORDER.length);
+  options.onPhase?.(`Agent: ${agentId}`, phaseIndex + 1, AUDIT_AGENT_ORDER.length);
+  options.onAgentStep?.({
+    agentId,
+    status: AGENT_ACTIVITY_STATUS.RUNNING,
+    kind: AGENT_STEP_KIND.ACTION,
+    step: AGENT_ACTIVITY_TEXT.START,
+  });
+  try {
+    const result = await runAuditSpecialist({
+      ...options,
+      agentId,
+      architectureBrief: state.architectureBrief,
+      graphSummary,
+      manifest,
+      priorFindingKeys: state.findings.map((finding) => finding.stableKey),
+      sharedEvidence: state.evidenceNotes,
+    });
+    return specialistUpdate(result, state.architectureBrief);
+  } catch (error: unknown) {
+    if (isAbortError(error)) {
+      throw error;
+    }
+    const message = error instanceof Error ? error.message : "Agent failed";
     options.onAgentStep?.({
       agentId,
-      status: AGENT_ACTIVITY_STATUS.RUNNING,
+      status: AGENT_ACTIVITY_STATUS.FAILED,
       kind: AGENT_STEP_KIND.ACTION,
-      step: AGENT_ACTIVITY_TEXT.START,
+      step: message,
     });
-    try {
-      const result = await runAuditSpecialist({
-        ...options,
-        agentId,
-        architectureBrief: state.architectureBrief,
-        graphSummary,
-        manifest,
-        priorFindingKeys: state.findings.map((finding) => finding.stableKey),
-        sharedEvidence: state.evidenceNotes,
-      });
-      return specialistUpdate(result, state.architectureBrief);
-    } catch (error: unknown) {
-      if (isAbortError(error)) {
-        throw error;
-      }
-      const message = error instanceof Error ? error.message : "Agent failed";
-      options.onAgentStep?.({
-        agentId,
-        status: AGENT_ACTIVITY_STATUS.FAILED,
-        kind: AGENT_STEP_KIND.ACTION,
-        step: message,
-      });
-      return {
-        agentTrace: [
-          {
-            agentId,
-            status: AGENT_RUN_STATUS.FAILED,
-            detail: message,
-            toolCallCount: 0,
-          },
-        ],
-      };
-    }
-  };
+    return {
+      agentTrace: [
+        {
+          agentId,
+          status: AGENT_RUN_STATUS.FAILED,
+          detail: message,
+          toolCallCount: 0,
+        },
+      ],
+    };
+  }
 }
 
 function createCodeReaderNode(

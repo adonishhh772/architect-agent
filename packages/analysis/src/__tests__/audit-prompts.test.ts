@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { PROMPT_CHAR_LIMIT, buildSpecialistUserPrompt, clipPromptText } from "../audit-prompts.js";
+import { AUDIT_AGENT } from "@sentinel/schema";
+import {
+  CODE_READER_PROMPT_LIMIT,
+  PROMPT_CHAR_LIMIT,
+  buildCodeReaderUserPrompt,
+  buildSpecialistUserPrompt,
+  clipPromptText,
+} from "../audit-prompts.js";
 
 describe("buildSpecialistUserPrompt", () => {
   it("keeps a large file batch under the prompt cap", () => {
@@ -18,5 +25,15 @@ describe("buildSpecialistUserPrompt", () => {
 
   it("leaves short text unchanged", () => {
     expect(clipPromptText("auth.ts", 20)).toBe("auth.ts");
+  });
+
+  it("sends the code reader only the current source window", () => {
+    const windowText = "src/auth.ts:1-12\nexport function login() { return session; }";
+    const prompt = buildCodeReaderUserPrompt([windowText, "y".repeat(5_000)]);
+    expect(prompt.startsWith("Read this window only.")).toBe(true);
+    expect(prompt).toContain("src/auth.ts");
+    expect(prompt).not.toContain("Graph:");
+    expect(prompt.length).toBeLessThanOrEqual(`Read this window only.\n\n`.length + CODE_READER_PROMPT_LIMIT);
+    expect(prompt).not.toContain(AUDIT_AGENT.STRIDE);
   });
 });

@@ -10,9 +10,11 @@ export const AUDIT_LIMITS = {
   TOOL_CALLS_PER_ROUND: 4,
   PREVIEW_LINES: 40,
   FULL_READ_LINES: 60,
-  PACK_FILES: 3,
+  PACK_FILES: 1,
   READER_BATCH_FILES: 3,
   READER_BATCH_CHARS: 4_500,
+  READER_FILES_PER_CALL: 1,
+  READER_WINDOW_CHARS: 700,
   MANIFEST_PATHS: 24,
   READER_MANIFEST_PATHS: 8,
   MAX_READER_ROUNDS: 24,
@@ -176,6 +178,7 @@ export function readFileWindows(
   paths: string[],
   resumeLines: Readonly<Record<string, number>>,
   resumeColumns: Readonly<Record<string, number>> = {},
+  maxSourceChars: number = AUDIT_LIMITS.TOOL_RESULT_CHARS,
 ): FileWindowRead {
   const observations: ToolObservation[] = [];
   const finishedPaths: string[] = [];
@@ -185,7 +188,7 @@ export function readFileWindows(
   for (const path of paths) {
     const content = context.contents.get(path) ?? "";
     const startLine = resumeLines[path] && resumeLines[path] > 0 ? resumeLines[path] : 1;
-    const window = nextLineWindow(content, startLine, resumeColumns[path] ?? 0, AUDIT_LIMITS.TOOL_RESULT_CHARS);
+    const window = nextLineWindow(content, startLine, resumeColumns[path] ?? 0, maxSourceChars);
     nextResume[path] = window.nextLine;
     nextColumns[path] = window.nextColumn;
     if (window.done && window.source.length === 0) {

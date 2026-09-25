@@ -5,8 +5,6 @@ import {
   RISK_DOMAIN_LIST,
   STRIDE_CATEGORY,
 } from "@sentinel/schema";
-import { skillsForAgent } from "./copilot-skills.js";
-import { ANALYZER_SYSTEM_PROMPT } from "./prompt-safety.js";
 
 const AGENT_FOCUS: Record<(typeof AUDIT_AGENT)[keyof typeof AUDIT_AGENT], string> = {
   [AUDIT_AGENT.CARTOGRAPHER]:
@@ -28,29 +26,43 @@ const AGENT_FOCUS: Record<(typeof AUDIT_AGENT)[keyof typeof AUDIT_AGENT], string
   [AUDIT_AGENT.VERIFIER]: "Check citations. This agent does not call a model.",
 };
 
+export const CODE_READER_PROMPT_LIMIT = 1_600;
+
+const CODE_READER_SYSTEM_PROMPT =
+  "Agent role: code_reader. You read one short source window and return one JSON object. threatModelOverview is one sentence. findings has at most two items. Each finding needs stableKey, title, category, scenario, mitigation, confidence, and references. Category is architecture, security, or ai_security. Cite only the path in this window. If the window shows no weakness, return an empty findings array. Do not write exploit steps.";
+
+export function buildCodeReaderSystemPrompt(): string {
+  return CODE_READER_SYSTEM_PROMPT;
+}
+
+export function buildCodeReaderUserPrompt(observations: readonly string[]): string {
+  const files = clipPromptText(observations.join("\n\n"), CODE_READER_PROMPT_LIMIT) || "No file text.";
+  return `Read this window only.\n\n${files}`;
+}
+
+const SPECIALIST_REPLY_RULE =
+  "Return one JSON object for this file window. threatModelOverview is at most two sentences. findings has at most three items. Each finding needs stableKey, title, category, scenario, mitigation, confidence, and references. Cite only paths in the window. If the window shows no weakness, return an empty findings array. No exploit steps.";
+
 export function buildSpecialistSystemPrompt(agentId: string): string {
   const focus = AGENT_FOCUS[agentId as keyof typeof AGENT_FOCUS] ?? AGENT_FOCUS[AUDIT_AGENT.CARTOGRAPHER];
-  return `${ANALYZER_SYSTEM_PROMPT}
+  return `${SPECIALIST_REPLY_RULE}
 
 Agent role: ${agentId}
 ${focus}
 Allowed STRIDE ids: ${Object.values(STRIDE_CATEGORY).join(", ")}
 Allowed OWASP ids: ${OWASP_CATEGORY_LIST.join(", ")}
 Allowed ATLAS ids: ${ATLAS_TECHNIQUE_LIST.join(", ")}
-Allowed risk domains: ${RISK_DOMAIN_LIST.join(", ")}
-If this agent's files do not support a claim, return an empty findings array and explain the gap in threatModelOverview.
-
-${skillsForAgent(agentId)}`;
+Allowed risk domains: ${RISK_DOMAIN_LIST.join(", ")}`;
 }
 
 export const PROMPT_CHAR_LIMIT = {
-  MEMORY: 500,
-  BRIEF: 500,
-  GRAPH: 900,
-  MANIFEST: 600,
-  OBSERVATIONS: 4_500,
-  PRIOR_KEYS: 240,
-  TOTAL: 8_000,
+  MEMORY: 400,
+  BRIEF: 400,
+  GRAPH: 500,
+  MANIFEST: 400,
+  OBSERVATIONS: 1_200,
+  PRIOR_KEYS: 200,
+  TOTAL: 4_000,
 } as const;
 
 export function clipPromptText(value: string, limit: number): string {

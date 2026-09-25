@@ -125,6 +125,10 @@ describe("runMultiAgentAudit", () => {
     expect(result.agentTrace.map((entry) => entry.agentId)).toEqual([
       AUDIT_AGENT.CODE_READER,
       AUDIT_AGENT.CODE_READER,
+      AUDIT_AGENT.CODE_READER,
+      AUDIT_AGENT.CODE_READER,
+      AUDIT_AGENT.CODE_READER,
+      AUDIT_AGENT.CODE_READER,
       AUDIT_AGENT.CARTOGRAPHER,
       AUDIT_AGENT.STRIDE,
       AUDIT_AGENT.OWASP,

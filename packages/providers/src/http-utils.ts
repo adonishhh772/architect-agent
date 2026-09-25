@@ -1,6 +1,12 @@
 import { ProviderError } from "./types.js";
 import type { FetchFn } from "./types.js";
 
+export const REQUEST_TIMED_OUT_MESSAGE = "Request timed out";
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
 export async function fetchWithTimeout(
   fetchFn: FetchFn,
   url: string,
@@ -12,8 +18,8 @@ export async function fetchWithTimeout(
   try {
     return await fetchFn(url, { ...init, signal: controller.signal });
   } catch (error: unknown) {
-    if (error instanceof DOMException && error.name === "AbortError") {
-      throw new ProviderError("unknown", "timeout", "Request timed out", {
+    if (isAbortError(error)) {
+      throw new ProviderError("unknown", "timeout", REQUEST_TIMED_OUT_MESSAGE, {
         retryable: true,
         cause: error,
       });

@@ -25,6 +25,7 @@ export interface AgentActivityUpdate {
 
 export const AGENT_ACTIVITY_TEXT = {
   START: "Starting this pass.",
+  CALLING_WINDOW: "Calling the model on this short window.",
   WRITING_REVIEW: "Writing this pass from the files just read.",
   FOLLOW_UP: "The model asked for more evidence before writing findings.",
   NO_FILES: "No indexed files matched this agent's scope.",

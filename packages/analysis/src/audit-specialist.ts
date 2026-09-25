@@ -1,4 +1,4 @@
-import type { AiProviderAdapter } from "@sentinel/providers";
+import { ProviderError, type AiProviderAdapter } from "@sentinel/providers";
 import { parseSpecialistResponse } from "./specialist-response.js";
 import {
   AGENT_RUN_STATUS,
@@ -19,7 +19,7 @@ import { sanitizeArchitectureMermaid } from "@sentinel/graph";
 import type { PullRequestSnapshot } from "@sentinel/ingestion";
 import { z } from "zod";
 import { formatMemoryForPrompt } from "./audit-memory.js";
-import { buildSpecialistSystemPrompt, buildSpecialistUserPrompt } from "./audit-prompts.js";
+import { buildCodeReaderSystemPrompt, buildCodeReaderUserPrompt, buildSpecialistSystemPrompt, buildSpecialistUserPrompt } from "./audit-prompts.js";
 import { selectUnreadBatch } from "./coverage-queue.js";
 import {
   AUDIT_LIMITS,
@@ -67,10 +67,12 @@ export const AUDIT_MESSAGE = {
   INVALID_MODEL_JSON: "Model response was not valid audit JSON.",
   COMPLETED: "Agent finished against its evidence pack.",
   NO_EVIDENCE: "The indexed snapshot has no files for this agent.",
-  READER_COMPLETE: "Read the next unread batch. Remaining indexed files are read in the next round.",
+  READER_COMPLETE: "Saved this window's answer. The next unread window follows.",
   READER_DONE: "Every indexed file was read or was already in memory.",
   NO_PULL_REQUESTS: "No open pull requests were available. ZIP uploads have no pull request API.",
   EMPTY_BATCH: "The model returned an empty reply for this batch. Continuing with the remaining indexed files.",
+  READER_TIMEOUT_RETRY: "The model request timed out. Retrying with a shorter file window.",
+  READER_TIMEOUT_CONTINUED: "The model request timed out. This batch was skipped so the review can continue.",
 } as const;
 
 const DEFAULT_RISK_BY_AGENT: Record<string, Array<(typeof RISK_DOMAIN_LIST)[number]>> = {
@@ -198,6 +200,10 @@ async function executeSpecialist(options: AuditSpecialistOptions): Promise<Audit
     return finishSpecialist(options, AGENT_RUN_STATUS.SKIPPED, AUDIT_MESSAGE.BUDGET_EXHAUSTED, 0);
   }
 
+  if (options.agentId === AUDIT_AGENT.CODE_READER) {
+    return readOneCodeWindow(options);
+  }
+
   const paths = [...options.context.contents.keys()];
   const sharedEvidence = options.sharedEvidence ?? [];
   if (
@@ -266,7 +272,7 @@ async function executeSpecialist(options: AuditSpecialistOptions): Promise<Audit
     );
     await waitForLivePaint();
 
-    const completion = await requestSpecialistCompletion(options, {
+    const requested = await requestSpecialistCompletion(options, {
       agentId: options.agentId,
       architectureBrief: options.architectureBrief,
       graphSummary: options.graphSummary,
@@ -275,9 +281,19 @@ async function executeSpecialist(options: AuditSpecialistOptions): Promise<Audit
       priorFindingKeys: options.priorFindingKeys,
       memoryText: formatMemoryForPrompt(options.priorMemory),
     });
-    if (!completion) {
-      return emptyReaderBatch(options, selection.finishedPaths ?? selected, partialPaths, selection.readResume, selection.readColumns, toolCallCount);
+    if (requested.kind !== "ok") {
+      const detail = requested.kind === "timeout" ? AUDIT_MESSAGE.READER_TIMEOUT_CONTINUED : AUDIT_MESSAGE.EMPTY_BATCH;
+      return emptyReaderBatch(
+        options,
+        selection.finishedPaths ?? selected,
+        partialPaths,
+        selection.readResume,
+        selection.readColumns,
+        toolCallCount,
+        detail,
+      );
     }
+    const completion = requested.completion;
     options.onUsage?.(completion.usage);
 
     const parsed = parseSpecialistResponse(completion.text, SpecialistResponseSchema);
@@ -356,6 +372,98 @@ async function executeSpecialist(options: AuditSpecialistOptions): Promise<Audit
   };
 }
 
+const ANSWER_NOTE_LIMIT = 480;
+
+async function readOneCodeWindow(options: AuditSpecialistOptions): Promise<AuditSpecialistResult> {
+  const paths = [...options.context.contents.keys()];
+  const selection = selectEvidenceForAgent(
+    options.agentId,
+    paths,
+    options.alreadyRead ?? new Set<string>(),
+    options.context,
+    options.pullRequests,
+    options.readResume ?? {},
+    options.readColumns ?? {},
+  );
+  if (selection.skip) {
+    return finishSpecialist(options, selection.status, selection.detail, 0);
+  }
+
+  const selected = selection.paths;
+  await publishFileReads(options, selected);
+  reportAgentStep(options, AGENT_ACTIVITY_STATUS.RUNNING, AGENT_STEP_KIND.ACTION, AGENT_ACTIVITY_TEXT.CALLING_WINDOW);
+  await waitForLivePaint();
+
+  const requested = await requestSpecialistCompletion(options, {
+    agentId: options.agentId,
+    architectureBrief: options.architectureBrief,
+    graphSummary: options.graphSummary,
+    manifest: manifestForAgent(options.agentId, options.manifest),
+    observations: selection.observations.map((item) => item.text),
+    priorFindingKeys: options.priorFindingKeys,
+    memoryText: formatMemoryForPrompt(options.priorMemory),
+  });
+  if (requested.kind !== "ok") {
+    const detail = requested.kind === "timeout" ? AUDIT_MESSAGE.READER_TIMEOUT_CONTINUED : AUDIT_MESSAGE.EMPTY_BATCH;
+    return emptyReaderBatch(
+      options,
+      selection.finishedPaths ?? selected,
+      selection.partialPaths,
+      selection.readResume,
+      selection.readColumns,
+      selected.length,
+      detail,
+    );
+  }
+
+  options.onUsage?.(requested.completion.usage);
+  const parsed = parseSpecialistResponse(requested.completion.text, SpecialistResponseSchema);
+  if (!parsed.success) {
+    return finishSpecialist(options, AGENT_RUN_STATUS.FAILED, invalidAuditMessage(parsed.error), selected.length, selected);
+  }
+
+  const overview = parsed.data.threatModelOverview;
+  const findings = mapDraftFindings(parsed.data, options);
+  if (overview) {
+    reportAgentStep(options, AGENT_ACTIVITY_STATUS.RUNNING, AGENT_STEP_KIND.THINKING, describeThinking(overview));
+  }
+  reportAgentStep(
+    options,
+    AGENT_ACTIVITY_STATUS.COMPLETED,
+    AGENT_STEP_KIND.ACTION,
+    describePassOutcome(findings.length, AUDIT_MESSAGE.READER_COMPLETE),
+  );
+  return {
+    overview,
+    findings,
+    attackPaths: mapDraftAttackPaths(parsed.data, options.agentId),
+    pathsRead: selection.finishedPaths ?? selected,
+    pathsPartial: selection.partialPaths,
+    readResume: selection.readResume,
+    readColumns: selection.readColumns,
+    evidenceNotes: [gatherWindowAnswer(selected, overview, findings)],
+    continueReading: false,
+    trace: {
+      agentId: options.agentId,
+      status: AGENT_RUN_STATUS.COMPLETED,
+      detail: AUDIT_MESSAGE.READER_COMPLETE,
+      toolCallCount: selected.length,
+    },
+  };
+}
+
+function gatherWindowAnswer(paths: readonly string[], overview: string | undefined, findings: readonly Finding[]): string {
+  const pathLabel = paths[0] ?? "window";
+  const summary = overview?.trim() || "No weakness in this window.";
+  const titles = findings.slice(0, 3).map((finding) => finding.title).join("; ");
+  const body = titles ? `${summary} Findings: ${titles}` : summary;
+  const note = `${pathLabel}: ${body}`;
+  if (note.length <= ANSWER_NOTE_LIMIT) {
+    return note;
+  }
+  return `${note.slice(0, ANSWER_NOTE_LIMIT - 1)}…`;
+}
+
 async function reviewSharedEvidence(options: AuditSpecialistOptions, sharedEvidence: readonly string[]): Promise<AuditSpecialistResult> {
   const collectedFindings: Finding[] = [];
   const collectedPaths: AttackPath[] = [];
@@ -363,7 +471,7 @@ async function reviewSharedEvidence(options: AuditSpecialistOptions, sharedEvide
   let architectureBrief: string | undefined;
   let architectureMermaid: string | undefined;
   let toolCallCount = 0;
-  const batches = chunkNotes(sharedEvidence, AUDIT_LIMITS.READER_BATCH_FILES);
+  const batches = chunkNotes(sharedEvidence, AUDIT_LIMITS.READER_FILES_PER_CALL).slice(0, 2);
 
   for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
     if (options.signal?.aborted) {
@@ -385,25 +493,25 @@ async function reviewSharedEvidence(options: AuditSpecialistOptions, sharedEvide
       AGENT_ACTIVITY_TEXT.WRITING_REVIEW,
     );
     await waitForLivePaint();
-    const completion = await options.provider.complete(options.apiKey, {
-      messages: [
-        { role: "system", content: buildSpecialistSystemPrompt(options.agentId) },
-        {
-          role: "user",
-          content: buildSpecialistUserPrompt({
-            agentId: options.agentId,
-            architectureBrief: options.architectureBrief,
-            graphSummary: options.graphSummary,
-            manifest: options.manifest,
-            observations: batch.length > 0 ? [...batch] : ["The code reader stored no file text."],
-            priorFindingKeys: [...options.priorFindingKeys, ...collectedFindings.map((finding) => finding.stableKey)],
-            memoryText: formatMemoryForPrompt(options.priorMemory),
-          }),
-        },
-      ],
-      jsonSchema: {},
-      maxOutputTokens: 8192,
+    const requested = await requestSpecialistCompletion(options, {
+      agentId: options.agentId,
+      architectureBrief: architectureBrief ?? options.architectureBrief,
+      graphSummary: options.graphSummary,
+      manifest: manifestForAgent(options.agentId, options.manifest),
+      observations: batch.length > 0 ? [...batch] : ["The code reader stored no file text."],
+      priorFindingKeys: [...options.priorFindingKeys, ...collectedFindings.map((finding) => finding.stableKey)],
+      memoryText: formatMemoryForPrompt(options.priorMemory),
     });
+    if (requested.kind !== "ok") {
+      reportAgentStep(
+        options,
+        AGENT_ACTIVITY_STATUS.RUNNING,
+        AGENT_STEP_KIND.ACTION,
+        requested.kind === "timeout" ? AUDIT_MESSAGE.READER_TIMEOUT_CONTINUED : AUDIT_MESSAGE.EMPTY_BATCH,
+      );
+      continue;
+    }
+    const completion = requested.completion;
     options.onUsage?.(completion.usage);
     const parsed = parseSpecialistResponse(completion.text, SpecialistResponseSchema);
     if (!parsed.success) {
@@ -426,25 +534,19 @@ async function reviewSharedEvidence(options: AuditSpecialistOptions, sharedEvide
       }
       const followUp = executeRequestedTools(requestedTools, options.context);
       toolCallCount += followUp.length;
-      const followUpCompletion = await options.provider.complete(options.apiKey, {
-        messages: [
-          { role: "system", content: buildSpecialistSystemPrompt(options.agentId) },
-          {
-            role: "user",
-            content: buildSpecialistUserPrompt({
-              agentId: options.agentId,
-              architectureBrief: architectureBrief ?? options.architectureBrief,
-              graphSummary: options.graphSummary,
-              manifest: options.manifest,
-              observations: [...batch, ...followUp.map((item) => item.text)],
-              priorFindingKeys: [...options.priorFindingKeys, ...collectedFindings.map((finding) => finding.stableKey)],
-              memoryText: formatMemoryForPrompt(options.priorMemory),
-            }),
-          },
-        ],
-        jsonSchema: {},
-        maxOutputTokens: 8192,
+      const followUpRequested = await requestSpecialistCompletion(options, {
+        agentId: options.agentId,
+        architectureBrief: architectureBrief ?? options.architectureBrief,
+        graphSummary: options.graphSummary,
+        manifest: manifestForAgent(options.agentId, options.manifest),
+        observations: [...batch, ...followUp.map((item) => item.text)],
+        priorFindingKeys: [...options.priorFindingKeys, ...collectedFindings.map((finding) => finding.stableKey)],
+        memoryText: formatMemoryForPrompt(options.priorMemory),
       });
+      if (followUpRequested.kind !== "ok") {
+        continue;
+      }
+      const followUpCompletion = followUpRequested.completion;
       options.onUsage?.(followUpCompletion.usage);
       const followUpParsed = parseSpecialistResponse(followUpCompletion.text, SpecialistResponseSchema);
       if (!followUpParsed.success) {
@@ -549,7 +651,15 @@ function reportAgentStep(
 }
 
 const EMPTY_COMPLETION = "Empty completion";
-const SPECIALIST_OUTPUT_TOKENS = 8192;
+const SPECIALIST_OUTPUT_TOKENS = 2_048;
+const CODE_READER_OUTPUT_TOKENS = 1_024;
+const CODE_READER_TIMEOUT_ATTEMPTS = 3;
+const SHORTER_WINDOW_FLOOR = 350;
+
+type SpecialistCompletionRequest =
+  | { kind: "ok"; completion: Awaited<ReturnType<AiProviderAdapter["complete"]>> }
+  | { kind: "empty" }
+  | { kind: "timeout" };
 
 function manifestForAgent(_agentId: string, manifest: string): string {
   return manifest.split("\n").slice(0, AUDIT_LIMITS.READER_MANIFEST_PATHS).join("\n");
@@ -558,22 +668,64 @@ function manifestForAgent(_agentId: string, manifest: string): string {
 async function requestSpecialistCompletion(
   options: AuditSpecialistOptions,
   prompt: Parameters<typeof buildSpecialistUserPrompt>[0],
-): Promise<Awaited<ReturnType<AiProviderAdapter["complete"]>> | undefined> {
-  try {
-    return await options.provider.complete(options.apiKey, {
-      messages: [
-        { role: "system", content: buildSpecialistSystemPrompt(options.agentId) },
-        { role: "user", content: buildSpecialistUserPrompt(prompt) },
-      ],
-      jsonSchema: {},
-      maxOutputTokens: SPECIALIST_OUTPUT_TOKENS,
-    });
-  } catch (error: unknown) {
-    if (options.agentId === AUDIT_AGENT.CODE_READER && error instanceof Error && error.message === EMPTY_COMPLETION) {
-      return undefined;
+): Promise<SpecialistCompletionRequest> {
+  const attemptLimit = options.agentId === AUDIT_AGENT.CODE_READER ? CODE_READER_TIMEOUT_ATTEMPTS : 2;
+  const maxOutputTokens = options.agentId === AUDIT_AGENT.CODE_READER ? CODE_READER_OUTPUT_TOKENS : SPECIALIST_OUTPUT_TOKENS;
+  let observations = prompt.observations;
+  for (let attempt = 0; attempt < attemptLimit; attempt += 1) {
+    try {
+      const completion = await options.provider.complete(options.apiKey, {
+        messages: specialistMessages(options.agentId, prompt, observations),
+        jsonSchema: {},
+        maxOutputTokens,
+      });
+      return { kind: "ok", completion };
+    } catch (error: unknown) {
+      if (options.agentId === AUDIT_AGENT.CODE_READER && error instanceof Error && error.message === EMPTY_COMPLETION) {
+        return { kind: "empty" };
+      }
+      if (isRequestTimeout(error)) {
+        if (attempt < attemptLimit - 1) {
+          observations = shrinkObservations(observations);
+          reportAgentStep(options, AGENT_ACTIVITY_STATUS.RUNNING, AGENT_STEP_KIND.ACTION, AUDIT_MESSAGE.READER_TIMEOUT_RETRY);
+          continue;
+        }
+        return { kind: "timeout" };
+      }
+      throw error;
     }
-    throw error;
   }
+  return { kind: "timeout" };
+}
+
+function specialistMessages(
+  agentId: string,
+  prompt: Parameters<typeof buildSpecialistUserPrompt>[0],
+  observations: string[],
+): Array<{ role: "system" | "user"; content: string }> {
+  if (agentId === AUDIT_AGENT.CODE_READER) {
+    return [
+      { role: "system", content: buildCodeReaderSystemPrompt() },
+      { role: "user", content: buildCodeReaderUserPrompt(observations) },
+    ];
+  }
+  return [
+    { role: "system", content: buildSpecialistSystemPrompt(agentId) },
+    { role: "user", content: buildSpecialistUserPrompt({ ...prompt, observations }) },
+  ];
+}
+
+function isRequestTimeout(error: unknown): boolean {
+  return error instanceof ProviderError && error.code === "timeout";
+}
+
+function shrinkObservations(observations: string[]): string[] {
+  const joined = observations.join("\n\n");
+  const nextLength = Math.max(SHORTER_WINDOW_FLOOR, Math.floor(joined.length / 2));
+  if (nextLength >= joined.length) {
+    return observations;
+  }
+  return [joined.slice(0, nextLength)];
 }
 
 function emptyReaderBatch(
@@ -583,8 +735,9 @@ function emptyReaderBatch(
   readResume: Record<string, number> | undefined,
   readColumns: Record<string, number> | undefined,
   toolCallCount: number,
+  detail: string,
 ): AuditSpecialistResult {
-  reportAgentStep(options, AGENT_ACTIVITY_STATUS.COMPLETED, AGENT_STEP_KIND.ACTION, AUDIT_MESSAGE.EMPTY_BATCH);
+  reportAgentStep(options, AGENT_ACTIVITY_STATUS.COMPLETED, AGENT_STEP_KIND.ACTION, detail);
   return {
     findings: [],
     attackPaths: [],
@@ -596,7 +749,7 @@ function emptyReaderBatch(
     trace: {
       agentId: options.agentId,
       status: AGENT_RUN_STATUS.COMPLETED,
-      detail: AUDIT_MESSAGE.EMPTY_BATCH,
+      detail,
       toolCallCount,
     },
   };
@@ -692,11 +845,17 @@ function selectEvidenceForAgent(
         paths,
         alreadyRead,
         context.contents,
-        AUDIT_LIMITS.READER_BATCH_FILES,
-        AUDIT_LIMITS.READER_BATCH_CHARS,
+        AUDIT_LIMITS.READER_FILES_PER_CALL,
+        AUDIT_LIMITS.READER_WINDOW_CHARS,
         priorityPaths,
       );
-      const coverage = readFileWindows(context, selected, readResume, readColumns);
+      const coverage = readFileWindows(
+        context,
+        selected,
+        readResume,
+        readColumns,
+        AUDIT_LIMITS.READER_WINDOW_CHARS,
+      );
       return {
         paths: selected,
         observations: coverage.observations,

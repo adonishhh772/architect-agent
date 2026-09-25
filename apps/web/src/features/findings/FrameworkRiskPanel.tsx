@@ -96,7 +96,7 @@ function RiskDomainSection({
       {findings.length === 0 ? (
         <p className="mt-2 text-xs text-[var(--md-on-surface-variant)]">No findings tagged for this domain.</p>
       ) : (
-        <ul className="mt-3 space-y-3">
+        <ul className="mt-3 max-h-64 space-y-3 overflow-y-auto pr-2">
           {findings.map((finding) => (
             <FindingChoice key={finding.id} finding={finding} onSelectFinding={onSelectFinding} />
           ))}

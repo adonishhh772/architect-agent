@@ -38,7 +38,7 @@ export function StrideThreatModelPanel({
         <Shield className="h-5 w-5 text-[var(--color-neon-pink)]" aria-hidden />
         <h3 className="text-lg font-semibold text-[var(--md-on-surface)]">STRIDE threat model</h3>
       </div>
-      <div className={SECTION_SCROLL} data-testid="stride-summary">
+      <div data-testid="stride-summary">
         <ol className="list-decimal space-y-3 pl-5 text-sm leading-relaxed text-[var(--md-on-surface-variant)]">
           {sentences.map((sentence) => (
             <li key={sentence}>{sentence}</li>

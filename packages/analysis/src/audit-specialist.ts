@@ -378,7 +378,7 @@ const ANSWER_NOTE_LIMIT = 480;
 
 export async function readCodeWindowBatch(options: AuditSpecialistOptions, fanout: number): Promise<AuditSpecialistResult> {
   const planned = planCodeWindows(options, fanout);
-  if (planned.length === 0) {
+  if (planned.selections.length === 0) {
     if (!budgetAllowsRequest(options)) {
       return finishSpecialist(options, AGENT_RUN_STATUS.SKIPPED, AUDIT_MESSAGE.BUDGET_EXHAUSTED, 0);
     }

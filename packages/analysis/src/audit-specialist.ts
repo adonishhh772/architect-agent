@@ -604,18 +604,6 @@ function gatherReaderNotes(notes: readonly string[]): string[] {
   return [`${joined.slice(0, GATHERED_NOTE_LIMIT - 1)}…`];
 }
 
-function chunkNotes(notes: readonly string[], batchSize: number): string[][] {
-  if (notes.length === 0) {
-    return [[]];
-  }
-  const batches: string[][] = [];
-  for (let index = 0; index < notes.length; index += batchSize) {
-    batches.push(notes.slice(index, index + batchSize));
-  }
-  return batches;
-}
-
-
 async function publishFileReads(options: AuditSpecialistOptions, paths: string[]): Promise<void> {
   if (paths.length === 0) {
     reportAgentStep(

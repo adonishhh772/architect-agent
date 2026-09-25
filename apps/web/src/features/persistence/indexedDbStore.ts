@@ -1,5 +1,6 @@
 import { AnalysisReportSchema, sanitizeReportForExport, type AnalysisReport } from "@sentinel/schema";
 import type { AgentWorkItem } from "../analysis/AgentActivityPanel/agentWorkState";
+import { openVaultJson, sealVaultJson } from "../vault/vaultCrypto";
 
 const DB_NAME = "architecture-sentinel";
 const DB_VERSION = 2;
@@ -30,36 +31,97 @@ function openDatabase(): Promise<IDBDatabase> {
   });
 }
 
-export async function saveReportLocally(report: AnalysisReport, agentWork: AgentWorkItem[] = []): Promise<void> {
+const VAULT_LOCKED_MESSAGE = "Unlock the vault to save this workspace.";
+
+interface SealedRecord {
+  id: string;
+  savedAt: string;
+  iv: string;
+  ciphertext: string;
+  report?: AnalysisReport;
+  agentWork?: AgentWorkItem[];
+}
+
+export async function saveReportLocally(
+  report: AnalysisReport,
+  agentWork: AgentWorkItem[] = [],
+  vaultCipher?: CryptoKey | null,
+): Promise<void> {
+  const cipher = requireVaultCipher(vaultCipher);
   const sanitized = sanitizeReportForExport(report);
+  const payload: PersistedReportRecord = {
+    id: sanitized.id,
+    savedAt: new Date().toISOString(),
+    report: sanitized,
+    agentWork,
+  };
+  const sealed = await sealVaultJson(cipher, payload);
+  await writeReportRecord({
+    id: payload.id,
+    savedAt: payload.savedAt,
+    iv: sealed.iv,
+    ciphertext: sealed.ciphertext,
+  });
+}
+
+export async function listSavedReports(vaultCipher?: CryptoKey | null): Promise<PersistedReportRecord[]> {
+  const cipher = requireVaultCipher(vaultCipher);
+  const db = await openDatabase();
+  const records = await new Promise<SealedRecord[]>((resolve, reject) => {
+    const tx = db.transaction(REPORT_STORE, "readonly");
+    const request = tx.objectStore(REPORT_STORE).getAll();
+    request.onsuccess = () => resolve(request.result as SealedRecord[]);
+    request.onerror = () => reject(request.error ?? new Error("IndexedDB read failed"));
+  });
+  db.close();
+  const opened: PersistedReportRecord[] = [];
+  for (const record of records) {
+    const payload = await openStoredReport(record, cipher);
+    opened.push(normalizeSavedRun(payload));
+  }
+  return sortSavedRunsNewestFirst(opened);
+}
+
+function requireVaultCipher(vaultCipher: CryptoKey | null | undefined): CryptoKey {
+  if (!vaultCipher) {
+    throw new Error(VAULT_LOCKED_MESSAGE);
+  }
+  return vaultCipher;
+}
+
+async function openStoredReport(record: SealedRecord, cipher: CryptoKey): Promise<PersistedReportRecord> {
+  if (record.ciphertext && record.iv) {
+    const parsed: unknown = await openVaultJson(cipher, record);
+    return parsed as PersistedReportRecord;
+  }
+  if (!record.report) {
+    throw new Error("Saved report is missing vault ciphertext.");
+  }
+  const plaintext: PersistedReportRecord = {
+    id: record.id,
+    savedAt: record.savedAt,
+    report: record.report,
+    agentWork: record.agentWork ?? [],
+  };
+  const sealed = await sealVaultJson(cipher, plaintext);
+  await writeReportRecord({
+    id: plaintext.id,
+    savedAt: plaintext.savedAt,
+    iv: sealed.iv,
+    ciphertext: sealed.ciphertext,
+  });
+  return plaintext;
+}
+
+async function writeReportRecord(record: SealedRecord): Promise<void> {
   const db = await openDatabase();
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(REPORT_STORE, "readwrite");
-    const store = tx.objectStore(REPORT_STORE);
-    const record: PersistedReportRecord = {
-      id: sanitized.id,
-      savedAt: new Date().toISOString(),
-      report: sanitized,
-      agentWork,
-    };
-    store.put(record);
+    tx.objectStore(REPORT_STORE).put(record);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error ?? new Error("IndexedDB write failed"));
   });
   db.close();
-}
-
-export async function listSavedReports(): Promise<PersistedReportRecord[]> {
-  const db = await openDatabase();
-  const records = await new Promise<PersistedReportRecord[]>((resolve, reject) => {
-    const tx = db.transaction(REPORT_STORE, "readonly");
-    const store = tx.objectStore(REPORT_STORE);
-    const request = store.getAll();
-    request.onsuccess = () => resolve(request.result as PersistedReportRecord[]);
-    request.onerror = () => reject(request.error ?? new Error("IndexedDB read failed"));
-  });
-  db.close();
-  return sortSavedRunsNewestFirst(records.map(normalizeSavedRun));
 }
 
 export function sortSavedRunsNewestFirst(records: PersistedReportRecord[]): PersistedReportRecord[] {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decryptVaultSecrets, encryptVaultSecrets } from "../vaultCrypto.js";
+import { decryptVaultSecrets, encryptVaultSecrets, openVaultCipher, openVaultJson, sealVaultJson, createVaultSalt } from "../vaultCrypto.js";
 
 describe("vaultCrypto", () => {
   it("encrypts and decrypts secrets with passphrase", async () => {
@@ -25,6 +25,15 @@ describe("vaultCrypto", () => {
     const blob = await encryptVaultSecrets(secrets, "vault-passphrase");
     const decrypted = await decryptVaultSecrets(blob, "vault-passphrase");
     expect(decrypted.providerSettings?.modelId).toBe("deepseek-v4-pro");
+  });
+
+  it("seals workspace JSON with the vault cipher and rejects a different passphrase", async () => {
+    const salt = createVaultSalt();
+    const cipher = await openVaultCipher("workspace-passphrase", salt);
+    const sealed = await sealVaultJson(cipher, { title: "indexed repo" });
+    await expect(openVaultJson(cipher, sealed)).resolves.toEqual({ title: "indexed repo" });
+    const otherCipher = await openVaultCipher("other-passphrase", salt);
+    await expect(openVaultJson(otherCipher, sealed)).rejects.toThrow("Unlock the vault");
   });
 
   it("rejects wrong passphrase", async () => {

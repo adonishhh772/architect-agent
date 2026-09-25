@@ -10,6 +10,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { PageHero } from "../../components/layout/PageHero";
 import { PageSection } from "../../components/layout/PageSection";
 import { parseImportedReportJson, saveReportLocally } from "../persistence/indexedDbStore";
+import { useSession } from "../session/SessionProvider";
 import { ImportDropzone } from "./ImportDropzone";
 
 const IMPORT_STEPS = [
@@ -32,6 +33,7 @@ const IMPORT_STEPS = [
 
 export function ImportReportPage(): JSX.Element {
   const navigate = useNavigate();
+  const session = useSession();
   const [message, setMessage] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +45,12 @@ export function ImportReportPage(): JSX.Element {
     try {
       const text = await file.text();
       const report = parseImportedReportJson(text);
-      await saveReportLocally(report);
+      const vaultCipher = session.getVaultCipher();
+      if (!vaultCipher) {
+        setError("Unlock the vault before importing a report.");
+        return;
+      }
+      await saveReportLocally(report, [], vaultCipher);
       setMessage(`Imported report ${report.id.slice(0, 8)}… Saved locally. Opening workspace…`);
       navigate("/workspace");
     } catch (caught) {

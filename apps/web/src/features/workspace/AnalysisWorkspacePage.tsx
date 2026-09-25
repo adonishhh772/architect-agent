@@ -102,10 +102,21 @@ export function AnalysisWorkspacePage(): JSX.Element {
   const [openedAgentWork, setOpenedAgentWork] = useState<AgentWorkItem[]>([]);
   const [runListError, setRunListError] = useState<string | null>(null);
 
+  const vaultCipher = session.getVaultCipher();
+
   useEffect(() => {
     let cancelled = false;
+    if (!vaultCipher) {
+      setStore(null);
+      setReport(null);
+      setSavedRuns([]);
+      setOpenedAgentWork([]);
+      setSelectedRunId(null);
+      setSessionRestored(true);
+      return;
+    }
     const restoreWorkspace = async (): Promise<void> => {
-      const snapshot = await loadWorkspaceSession();
+      const snapshot = await loadWorkspaceSession(vaultCipher);
       if (cancelled) {
         return;
       }
@@ -134,7 +145,7 @@ export function AnalysisWorkspacePage(): JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [vaultCipher]);
 
   const exclusionList = useMemo(
     () =>
@@ -183,13 +194,16 @@ export function AnalysisWorkspacePage(): JSX.Element {
     nextReport: AnalysisReport | null,
   ): Promise<void> => {
     try {
-      await saveWorkspaceSession({
-        store: nextStore,
-        sourceLabel: nextSourceLabel,
-        commitSha: nextCommitSha,
-        repoUrl: nextRepoUrl || undefined,
-        lastReport: nextReport,
-      });
+      await saveWorkspaceSession(
+        {
+          store: nextStore,
+          sourceLabel: nextSourceLabel,
+          commitSha: nextCommitSha,
+          repoUrl: nextRepoUrl || undefined,
+          lastReport: nextReport,
+        },
+        session.getVaultCipher(),
+      );
     } catch {
       setStatusMessage("Indexed repository is in memory but could not be saved to IndexedDB (storage quota).");
     }
@@ -281,7 +295,7 @@ export function AnalysisWorkspacePage(): JSX.Element {
       setReport(completed.report);
       setOpenedAgentWork(completed.agentWork);
       setSelectedRunId(completed.report.id);
-      await saveReportLocally(completed.report, completed.agentWork);
+      await saveReportLocally(completed.report, completed.agentWork, session.getVaultCipher());
       await refreshSavedRuns();
       await persistIndexedRepository(store, sourceLabel, commitSha, repoUrl, completed.report);
       setWorkspaceView(WORKSPACE_VIEW.LIST);
@@ -298,7 +312,7 @@ export function AnalysisWorkspacePage(): JSX.Element {
     if (!report) {
       return;
     }
-    await saveReportLocally(report, openedAgentWork);
+    await saveReportLocally(report, openedAgentWork, session.getVaultCipher());
     await refreshSavedRuns();
     setSelectedRunId(report.id);
     setStatusMessage("Report saved locally in IndexedDB (secrets excluded).");
@@ -472,17 +486,21 @@ export function AnalysisWorkspacePage(): JSX.Element {
   };
 
   const forgetDeletedReportFromSession = async (reportId: string): Promise<void> => {
-    const snapshot = await loadWorkspaceSession();
+    const cipher = session.getVaultCipher();
+    const snapshot = await loadWorkspaceSession(cipher);
     if (!snapshot || snapshot.lastReport?.id !== reportId) {
       return;
     }
-    await saveWorkspaceSession({
-      store: snapshot.store,
-      sourceLabel: snapshot.sourceLabel,
-      repoUrl: snapshot.repoUrl,
-      commitSha: snapshot.commitSha,
-      lastReport: null,
-    });
+    await saveWorkspaceSession(
+      {
+        store: snapshot.store,
+        sourceLabel: snapshot.sourceLabel,
+        repoUrl: snapshot.repoUrl,
+        commitSha: snapshot.commitSha,
+        lastReport: null,
+      },
+      cipher,
+    );
   };
 
   const handleRemoveIndexedWorkspace = (): void => {
@@ -535,10 +553,10 @@ export function AnalysisWorkspacePage(): JSX.Element {
   const rememberRestoredRun = async (lastReport: AnalysisReport | undefined): Promise<void> => {
     try {
       if (lastReport) {
-        const existing = await listSavedReports();
+        const existing = await listSavedReports(session.getVaultCipher());
         const alreadySaved = existing.some((record) => record.id === lastReport.id);
         if (!alreadySaved) {
-          await saveReportLocally(lastReport, []);
+          await saveReportLocally(lastReport, [], session.getVaultCipher());
         }
       }
     } catch (caught) {
@@ -551,7 +569,7 @@ export function AnalysisWorkspacePage(): JSX.Element {
 
   const refreshSavedRuns = async (): Promise<void> => {
     try {
-      const records = await listSavedReports();
+      const records = await listSavedReports(session.getVaultCipher());
       setSavedRuns(records);
       setRunListError(null);
     } catch (caught) {

@@ -39,6 +39,40 @@ function decodeBase64(value: string): Uint8Array {
   return bytes;
 }
 
+export async function openVaultCipher(passphrase: string, saltBase64: string): Promise<CryptoKey> {
+  return deriveVaultKey(passphrase, decodeBase64(saltBase64));
+}
+
+export function createVaultSalt(): string {
+  return encodeBase64(crypto.getRandomValues(new Uint8Array(16)));
+}
+
+export async function sealVaultJson(
+  key: CryptoKey,
+  value: unknown,
+): Promise<{ iv: string; ciphertext: string }> {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const plaintext = new TextEncoder().encode(JSON.stringify(value));
+  const ciphertextBuffer = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plaintext);
+  return {
+    iv: encodeBase64(iv),
+    ciphertext: encodeBase64(new Uint8Array(ciphertextBuffer)),
+  };
+}
+
+export async function openVaultJson(key: CryptoKey, sealed: { iv: string; ciphertext: string }): Promise<unknown> {
+  try {
+    const plaintextBuffer = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: decodeBase64(sealed.iv) },
+      key,
+      decodeBase64(sealed.ciphertext),
+    );
+    return JSON.parse(new TextDecoder().decode(plaintextBuffer));
+  } catch {
+    throw new Error("Unlock the vault to read this workspace.");
+  }
+}
+
 async function deriveVaultKey(passphrase: string, salt: Uint8Array): Promise<CryptoKey> {
   const encoder = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey(

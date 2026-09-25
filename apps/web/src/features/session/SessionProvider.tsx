@@ -13,6 +13,7 @@ import { ProviderSettingsSchema } from "@sentinel/schema";
 import {
   decryptVaultSecrets,
   encryptVaultSecrets,
+  openVaultCipher,
   type VaultSecrets,
 } from "../vault/vaultCrypto.js";
 import { replaceRetiredOpenAiModel } from "../provider/providerDefaults.js";
@@ -26,6 +27,7 @@ import { clearAllSentinelSessionData } from "./sessionReset.js";
 import {
   clearStoredVaultBlob,
   hasStoredVaultBlob,
+  readOrCreateWorkspaceSalt,
   readStoredVaultBlob,
   writeStoredVaultBlob,
 } from "../vault/vaultStorage.js";
@@ -57,6 +59,7 @@ interface SessionContextValue {
   vaultSavedProviderSettings: ProviderSettings | null;
   /** True only after you pick a provider/model or save provider settings in the vault. */
   hasConfiguredProviderSettings: boolean;
+  getVaultCipher: () => CryptoKey | null;
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -79,6 +82,7 @@ export function SessionProvider({ children }: SessionProviderProps): JSX.Element
     githubToken: null,
   });
   const unlockPassphraseRef = useRef<string | null>(null);
+  const vaultCipherRef = useRef<CryptoKey | null>(null);
 
   const [providerSettings, setProviderSettingsState] = useState<ProviderSettings>(() => {
     return readStoredProviderSettings() ?? DEFAULT_PROVIDER_SETTINGS;
@@ -130,6 +134,7 @@ export function SessionProvider({ children }: SessionProviderProps): JSX.Element
   const wipeMemorySecrets = useCallback((): void => {
     memorySecretsRef.current = { modelApiKey: null, githubToken: null };
     unlockPassphraseRef.current = null;
+    vaultCipherRef.current = null;
     setHasModelApiKey(false);
   }, []);
 
@@ -201,6 +206,7 @@ export function SessionProvider({ children }: SessionProviderProps): JSX.Element
       const encrypted = await encryptVaultSecrets(mergedSecrets, passphrase);
       writeStoredVaultBlob(encrypted);
       unlockPassphraseRef.current = passphrase;
+      vaultCipherRef.current = await openVaultCipher(passphrase, readOrCreateWorkspaceSalt());
       memorySecretsRef.current = mergedSecrets;
       setHasStoredVault(true);
       setVaultStatus("unlocked");
@@ -230,6 +236,7 @@ export function SessionProvider({ children }: SessionProviderProps): JSX.Element
     try {
       const secrets = await decryptVaultSecrets(blob, passphrase);
       unlockPassphraseRef.current = passphrase;
+      vaultCipherRef.current = await openVaultCipher(passphrase, readOrCreateWorkspaceSalt());
       memorySecretsRef.current = secrets;
       setVaultStatus("unlocked");
       setHasModelApiKey(Boolean(secrets.modelApiKey));
@@ -303,6 +310,13 @@ export function SessionProvider({ children }: SessionProviderProps): JSX.Element
     void resetAllSessionData();
   }, [resetAllSessionData]);
 
+  const getVaultCipher = useCallback((): CryptoKey | null => {
+    if (vaultStatus !== "unlocked") {
+      return null;
+    }
+    return vaultCipherRef.current;
+  }, [vaultStatus]);
+
   const canUseAiInvestigation = useCallback((): boolean => {
     return (
       vaultStatus === "unlocked" &&
@@ -336,6 +350,7 @@ export function SessionProvider({ children }: SessionProviderProps): JSX.Element
       hasModelApiKey,
       vaultSavedProviderSettings,
       hasConfiguredProviderSettings,
+      getVaultCipher,
     }),
     [
       providerSettings,
@@ -358,6 +373,7 @@ export function SessionProvider({ children }: SessionProviderProps): JSX.Element
       hasModelApiKey,
       vaultSavedProviderSettings,
       hasConfiguredProviderSettings,
+      getVaultCipher,
     ],
   );
 

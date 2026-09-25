@@ -8,6 +8,7 @@ import {
   type AnalysisReport,
 } from "@sentinel/schema";
 import { z } from "zod";
+import { openVaultJson, sealVaultJson } from "../vault/vaultCrypto";
 
 const DB_NAME = "architecture-sentinel";
 const DB_VERSION = 2;
@@ -44,13 +45,21 @@ function openDatabase(): Promise<IDBDatabase> {
   });
 }
 
-export async function saveWorkspaceSession(input: {
-  store: RepositoryStore;
-  sourceLabel: string;
-  repoUrl?: string;
-  commitSha?: string;
-  lastReport?: AnalysisReport | null;
-}): Promise<void> {
+const VAULT_LOCKED_MESSAGE = "Unlock the vault to save this workspace.";
+
+export async function saveWorkspaceSession(
+  input: {
+    store: RepositoryStore;
+    sourceLabel: string;
+    repoUrl?: string;
+    commitSha?: string;
+    lastReport?: AnalysisReport | null;
+  },
+  vaultCipher?: CryptoKey | null,
+): Promise<void> {
+  if (!vaultCipher) {
+    throw new Error(VAULT_LOCKED_MESSAGE);
+  }
   const record: PersistedWorkspaceSession = {
     id: WORKSPACE_SESSION_KEY,
     savedAt: new Date().toISOString(),
@@ -62,18 +71,15 @@ export async function saveWorkspaceSession(input: {
     lastReport: input.lastReport ? sanitizeReportForExport(input.lastReport) : undefined,
   };
   PersistedWorkspaceSessionSchema.parse(record);
-
-  const db = await openDatabase();
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(WORKSPACE_SESSION_STORE, "readwrite");
-    tx.objectStore(WORKSPACE_SESSION_STORE).put(record);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error ?? new Error("IndexedDB workspace write failed"));
+  const sealed = await sealVaultJson(vaultCipher, record);
+  await writeWorkspaceRecord({
+    id: WORKSPACE_SESSION_KEY,
+    iv: sealed.iv,
+    ciphertext: sealed.ciphertext,
   });
-  db.close();
 }
 
-export async function loadWorkspaceSession(): Promise<{
+export async function loadWorkspaceSession(vaultCipher?: CryptoKey | null): Promise<{
   store: RepositoryStore;
   sourceLabel: string;
   repoUrl?: string;
@@ -81,11 +87,14 @@ export async function loadWorkspaceSession(): Promise<{
   lastReport?: AnalysisReport;
   savedAt: string;
 } | null> {
+  if (!vaultCipher) {
+    throw new Error(VAULT_LOCKED_MESSAGE);
+  }
   const db = await openDatabase();
-  const stored = await new Promise<PersistedWorkspaceSession | undefined>((resolve, reject) => {
+  const stored = await new Promise<WorkspaceEnvelope | undefined>((resolve, reject) => {
     const tx = db.transaction(WORKSPACE_SESSION_STORE, "readonly");
     const request = tx.objectStore(WORKSPACE_SESSION_STORE).get(WORKSPACE_SESSION_KEY);
-    request.onsuccess = () => resolve(request.result as PersistedWorkspaceSession | undefined);
+    request.onsuccess = () => resolve(request.result as WorkspaceEnvelope | undefined);
     request.onerror = () => reject(request.error ?? new Error("IndexedDB workspace read failed"));
   });
   db.close();
@@ -93,7 +102,7 @@ export async function loadWorkspaceSession(): Promise<{
   if (!stored) {
     return null;
   }
-  const parsed = PersistedWorkspaceSessionSchema.parse(stored);
+  const parsed = await readWorkspaceEnvelope(stored, vaultCipher);
   return {
     store: {
       index: fileIndexFromRecord(parsed.indexRecord),
@@ -105,6 +114,45 @@ export async function loadWorkspaceSession(): Promise<{
     lastReport: parsed.lastReport,
     savedAt: parsed.savedAt,
   };
+}
+
+interface WorkspaceEnvelope {
+  id: string;
+  iv?: string;
+  ciphertext?: string;
+  indexRecord?: PersistedWorkspaceSession["indexRecord"];
+  contentEntries?: PersistedWorkspaceSession["contentEntries"];
+  sourceLabel?: string;
+  savedAt?: string;
+  repoUrl?: string;
+  commitSha?: string;
+  lastReport?: AnalysisReport;
+}
+
+async function readWorkspaceEnvelope(stored: WorkspaceEnvelope, vaultCipher: CryptoKey): Promise<PersistedWorkspaceSession> {
+  if (stored.ciphertext && stored.iv) {
+    const parsed: unknown = await openVaultJson(vaultCipher, { iv: stored.iv, ciphertext: stored.ciphertext });
+    return PersistedWorkspaceSessionSchema.parse(parsed);
+  }
+  const parsed = PersistedWorkspaceSessionSchema.parse(stored);
+  const sealed = await sealVaultJson(vaultCipher, parsed);
+  await writeWorkspaceRecord({
+    id: WORKSPACE_SESSION_KEY,
+    iv: sealed.iv,
+    ciphertext: sealed.ciphertext,
+  });
+  return parsed;
+}
+
+async function writeWorkspaceRecord(record: { id: string; iv: string; ciphertext: string }): Promise<void> {
+  const db = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(WORKSPACE_SESSION_STORE, "readwrite");
+    tx.objectStore(WORKSPACE_SESSION_STORE).put(record);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error ?? new Error("IndexedDB workspace write failed"));
+  });
+  db.close();
 }
 
 export async function clearWorkspaceSession(): Promise<void> {

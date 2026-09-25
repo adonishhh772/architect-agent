@@ -471,7 +471,7 @@ async function reviewSharedEvidence(options: AuditSpecialistOptions, sharedEvide
   let architectureBrief: string | undefined;
   let architectureMermaid: string | undefined;
   let toolCallCount = 0;
-  const batches = chunkNotes(sharedEvidence, AUDIT_LIMITS.READER_FILES_PER_CALL).slice(0, 2);
+  const batches = [gatherReaderNotes(sharedEvidence)];
 
   for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
     if (options.signal?.aborted) {
@@ -589,6 +589,19 @@ async function reviewSharedEvidence(options: AuditSpecialistOptions, sharedEvide
       toolCallCount,
     },
   };
+}
+
+const GATHERED_NOTE_LIMIT = 1_200;
+
+function gatherReaderNotes(notes: readonly string[]): string[] {
+  if (notes.length === 0) {
+    return ["The code reader stored no answers."];
+  }
+  const joined = notes.join("\n");
+  if (joined.length <= GATHERED_NOTE_LIMIT) {
+    return [joined];
+  }
+  return [`${joined.slice(0, GATHERED_NOTE_LIMIT - 1)}…`];
 }
 
 function chunkNotes(notes: readonly string[], batchSize: number): string[][] {

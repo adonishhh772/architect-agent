@@ -57,6 +57,18 @@ function applyUpdateToItem(item: AgentWorkItem, update: AgentActivityUpdate): Ag
   };
 }
 
+const ROSTER_STATUS_LABEL: Record<AgentWorkStatus, string> = {
+  [AGENT_WORK_STATUS.PENDING]: "Waiting",
+  [AGENT_WORK_STATUS.RUNNING]: "Running",
+  [AGENT_WORK_STATUS.COMPLETED]: "Done",
+  [AGENT_WORK_STATUS.SKIPPED]: "Skipped",
+  [AGENT_WORK_STATUS.FAILED]: "Failed",
+};
+
+export function rosterStatusLabel(status: AgentWorkStatus): string {
+  return ROSTER_STATUS_LABEL[status];
+}
+
 export function isThinkingStep(step: AgentWorkStep): boolean {
   return step.kind === AGENT_STEP_KIND.THINKING;
 }

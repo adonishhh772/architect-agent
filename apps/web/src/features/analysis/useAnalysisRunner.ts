@@ -38,7 +38,6 @@ export function useAnalysisRunner(): {
     enableAi: boolean;
     advisoryLookupConsent: boolean;
     exclusions: string[];
-    maxRequests: number;
     maxTokens: number;
   }) => Promise<AnalysisRunResult>;
   cancel: () => void;
@@ -99,7 +98,6 @@ export function useAnalysisRunner(): {
             setAgentWork(nextWork);
           },
           budget: {
-            maxRequests: input.maxRequests,
             maxTokens: input.maxTokens,
           },
           githubToken: input.githubToken,

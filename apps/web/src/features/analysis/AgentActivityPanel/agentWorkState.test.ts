@@ -2,7 +2,7 @@ import { AGENT_ACTIVITY_STATUS, AGENT_STEP_KIND, type AgentActivityUpdate } from
 import { AUDIT_AGENT } from "@sentinel/schema";
 import { describe, expect, it } from "vitest";
 import { buildTranscript } from "./AgentActivityPanel";
-import { applyAgentActivity, createPendingAgentWork } from "./agentWorkState";
+import { applyAgentActivity, createPendingAgentWork, rosterStatusLabel } from "./agentWorkState";
 
 describe("applyAgentActivity", () => {
   it("records thinking under the active agent and leaves the others waiting", () => {
@@ -68,6 +68,30 @@ describe("buildTranscript", () => {
     expect(lines[0]?.live).toBe(false);
     expect(lines[1]?.live).toBe(true);
     expect(lines[1]?.step.text).toBe("Writing this pass from the files just read.");
+  });
+});
+
+describe("rosterStatusLabel", () => {
+  it("names every agent that has not started as waiting", () => {
+    const work = createPendingAgentWork();
+    const running = applyAgentActivity(work, {
+      agentId: AUDIT_AGENT.CODE_READER,
+      status: AGENT_ACTIVITY_STATUS.RUNNING,
+      kind: AGENT_STEP_KIND.ACTION,
+      step: "Reading AGENTS.md.",
+    });
+    const labels = running.map((agent) => `${agent.agentId}:${rosterStatusLabel(agent.status)}`);
+    expect(labels[0]).toBe("code_reader:Running");
+    expect(labels.slice(1)).toEqual([
+      "cartographer:Waiting",
+      "stride:Waiting",
+      "owasp:Waiting",
+      "atlas:Waiting",
+      "data:Waiting",
+      "infrastructure:Waiting",
+      "pull_request:Waiting",
+      "verifier:Waiting",
+    ]);
   });
 });
 

@@ -77,7 +77,6 @@ export function AnalysisWorkspacePage(): JSX.Element {
   const [repoUrl, setRepoUrl] = useState("");
   const [exclusions, setExclusions] = useState(".env,secrets,id_rsa");
   const [githubToken, setGithubToken] = useState("");
-  const [maxRequests, setMaxRequests] = useState(25);
   const [advisoryLookupConsent, setAdvisoryLookupConsent] = useState(false);
   const [maxTokens, setMaxTokens] = useState(200_000);
   const [selectedTreePath, setSelectedTreePath] = useState<string | undefined>();
@@ -289,7 +288,6 @@ export function AnalysisWorkspacePage(): JSX.Element {
         enableAi: true,
         advisoryLookupConsent,
         exclusions: exclusionList,
-        maxRequests,
         maxTokens,
       });
       setReport(completed.report);
@@ -298,7 +296,7 @@ export function AnalysisWorkspacePage(): JSX.Element {
       await saveReportLocally(completed.report, completed.agentWork, session.getVaultCipher());
       await refreshSavedRuns();
       await persistIndexedRepository(store, sourceLabel, commitSha, repoUrl, completed.report);
-      setWorkspaceView(WORKSPACE_VIEW.LIST);
+      setWorkspaceView(WORKSPACE_VIEW.INSPECT);
       setStatusMessage(
         `Threat model complete — ${completed.report.findings.length} findings (${completed.report.budget.requestsUsed} AI requests, ${completed.report.budget.tokensUsed} tokens).`,
       );
@@ -336,10 +334,6 @@ export function AnalysisWorkspacePage(): JSX.Element {
 
   const handleTransmissionConfirmChange = (event: ChangeEvent<HTMLInputElement>): void => {
     session.setAiTransmissionConfirmed(event.target.checked);
-  };
-
-  const handleMaxRequestsChange = (event: ChangeEvent<HTMLInputElement>): void => {
-    setMaxRequests(Number(event.target.value));
   };
 
   const handleMaxTokensChange = (event: ChangeEvent<HTMLInputElement>): void => {
@@ -878,24 +872,14 @@ export function AnalysisWorkspacePage(): JSX.Element {
                 />
                 I confirm sending package names and versions from the indexed lockfile to the public OSV advisory service
               </label>
-              <div className="grid gap-3 md:grid-cols-2">
-                <MaterialTextField
-                  label="Max AI requests"
-                  type="number"
-                  value={String(maxRequests)}
-                  min={1}
-                  max={80}
-                  onChange={handleMaxRequestsChange}
-                />
-                <MaterialTextField
-                  label="Max tokens"
-                  type="number"
-                  value={String(maxTokens)}
-                  min={1000}
-                  max={200000}
-                  onChange={handleMaxTokensChange}
-                />
-              </div>
+              <MaterialTextField
+                label="Max tokens"
+                type="number"
+                value={String(maxTokens)}
+                min={1000}
+                max={200000}
+                onChange={handleMaxTokensChange}
+              />
             </div>
           </div>
         </PageSection>

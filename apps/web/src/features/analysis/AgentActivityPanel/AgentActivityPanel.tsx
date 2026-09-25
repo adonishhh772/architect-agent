@@ -1,6 +1,6 @@
 import { AUDIT_AGENT } from "@sentinel/schema";
 import { useEffect, useRef } from "react";
-import { AGENT_WORK_STATUS, isThinkingStep, type AgentWorkItem, type AgentWorkStep } from "./agentWorkState";
+import { AGENT_WORK_STATUS, isThinkingStep, rosterStatusLabel, type AgentWorkItem, type AgentWorkStep } from "./agentWorkState";
 
 const AGENT_LABEL: Record<(typeof AUDIT_AGENT)[keyof typeof AUDIT_AGENT], string> = {
   [AUDIT_AGENT.CARTOGRAPHER]: "Cartographer",
@@ -39,17 +39,36 @@ export function AgentActivityPanel({ agents }: AgentActivityPanelProps): JSX.Ele
   }, [lineCount]);
 
   return (
-    <ol
-      ref={feedRef}
-      className="mt-4 max-h-[32rem] space-y-1 overflow-y-auto rounded-2xl border border-[var(--md-outline)]/30 bg-[var(--md-surface)]/80 p-3 font-mono text-sm"
-      data-testid="agent-activity"
-      aria-live="polite"
-      aria-label="Live agent activity"
+    <div className="mt-4 space-y-3">
+      <ul className="flex flex-wrap gap-2" data-testid="agent-roster" aria-label="Audit agents">
+        {agents.map((agent) => (
+          <AgentRosterItem key={agent.agentId} agent={agent} />
+        ))}
+      </ul>
+      <ol
+        ref={feedRef}
+        className="max-h-[32rem] space-y-1 overflow-y-auto rounded-2xl border border-[var(--md-outline)]/30 bg-[var(--md-surface)]/80 p-3 font-mono text-sm"
+        data-testid="agent-activity"
+        aria-live="polite"
+        aria-label="Live agent activity"
+      >
+        {lines.map((line) => (
+          <TranscriptRow key={line.id} line={line} />
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+function AgentRosterItem({ agent }: { agent: AgentWorkItem }): JSX.Element {
+  const running = agent.status === AGENT_WORK_STATUS.RUNNING;
+  return (
+    <li
+      className={`meta-pill ${running ? "bg-[var(--md-primary-container)] text-[var(--md-on-primary-container)]" : "bg-[var(--md-surface-container-high)] text-[var(--md-on-surface-variant)]"}`}
+      data-testid={`agent-roster-${agent.agentId}`}
     >
-      {lines.map((line) => (
-        <TranscriptRow key={line.id} line={line} />
-      ))}
-    </ol>
+      {AGENT_LABEL[agent.agentId]} · {rosterStatusLabel(agent.status)}
+    </li>
   );
 }
 

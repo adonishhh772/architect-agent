@@ -347,6 +347,15 @@ export function AnalysisWorkspacePage(): JSX.Element {
     document.getElementById("repository-file-tree")?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
+  const handleExportRun = (runId: string): void => {
+    const selected = savedRuns.find((run) => run.id === runId);
+    if (!selected) {
+      setRunListError("That workspace is no longer saved in this browser.");
+      return;
+    }
+    exportReportJson(selected.report);
+  };
+
   const handleExportJson = (): void => {
     if (report) {
       exportReportJson(report);
@@ -714,6 +723,7 @@ export function AnalysisWorkspacePage(): JSX.Element {
             selectedRunId={selectedRunId}
             error={runListError}
             onSelectRun={handleToggleRun}
+            onExportRun={handleExportRun}
             onDeleteRun={handleDeleteRun}
             deletingRunId={deletingRunId}
             openRunContent={openWorkspaceReport}

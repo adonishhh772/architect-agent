@@ -8,6 +8,7 @@ export type WorkspaceViewMode = (typeof WORKSPACE_VIEW)[keyof typeof WORKSPACE_V
 export const INSPECT_ANOTHER_WORKSPACE_LABEL = "Inspect another workspace";
 export const BACK_TO_WORKSPACES_LABEL = "Back to workspaces";
 export const DELETE_WORKSPACE_LABEL = "Delete";
+export const EXPORT_WORKSPACE_LABEL = "Export";
 export const DELETING_WORKSPACE_LABEL = "Deleting…";
 export const REMOVE_INDEXED_WORKSPACE_LABEL = "Remove";
 export const REMOVE_INDEXED_WORKSPACE_CONFIRM =

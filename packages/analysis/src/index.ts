@@ -1,5 +1,6 @@
 export * from "./agent-activity.js";
 export * from "./orchestrator.js";
+export * from "./compact-overall-summary.js";
 export * from "./investigation-tools.js";
 export * from "./static-findings.js";
 export * from "./coverage-builder.js";

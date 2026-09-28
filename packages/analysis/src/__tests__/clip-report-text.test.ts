@@ -18,6 +18,16 @@ describe("compactReportText", () => {
     expect(summary).toContain("database role is broader");
   });
 
+  it("stops a long sentence on a whole word", () => {
+    const sentence =
+      "This window exposes a Celery task enqueue helper that accepts a broker URL and request metadata, then dispatches an ingest task without local validation.";
+    const summary = compactReportText(sentence, 90);
+    expect(summary.endsWith("…")).toBe(false);
+    expect(summary.endsWith(".")).toBe(true);
+    expect(summary.includes(" local ")).toBe(false);
+    expect(summary.split(" ").at(-1)).toBe("request.");
+  });
+
   it("drops a repeated sentence instead of storing it twice", () => {
     const sentence = "The upload handler trusts the client file name.";
     const summary = compactReportText(Array.from({ length: 400 }, () => sentence).join(" "));

@@ -1,5 +1,5 @@
 import { buildArchitectureProfile, extractArchitecture, extractCallFlows, graphToMermaid } from "@sentinel/graph";
-import type { AiProviderAdapter } from "@sentinel/providers";
+import type { AiProviderAdapter, ProviderUsage } from "@sentinel/providers";
 import {
   AGENT_RUN_STATUS,
   ANALYSIS_MODE,
@@ -15,6 +15,7 @@ import {
 } from "@sentinel/schema";
 import { fetchOpenPullRequests, type PullRequestSnapshot } from "@sentinel/ingestion";
 import type { AgentActivityUpdate } from "./agent-activity.js";
+import { compactOverallSummary, overviewNeedsCompaction } from "./compact-overall-summary.js";
 import { buildCoverageReport } from "./coverage-builder.js";
 import { runDeepInvestigationAgent } from "./deep-investigation-agent.js";
 import { applyStoredDispositions } from "./disposition.js";
@@ -164,7 +165,10 @@ export async function runAnalysisOrchestrator(
 
   const aiFindings = aiInvestigation.findings;
   const aiAttackPaths = aiInvestigation.attackPaths;
-  const threatModelOverview = aiInvestigation.threatModelOverview;
+  const threatModelOverview = await compactThreatModelOverview(options, aiInvestigation.threatModelOverview, (usage) => {
+    tokensUsed += usage.totalTokens;
+    requestsUsed += 1;
+  });
 
   if (
     options.budget?.maxRequests !== undefined &&
@@ -468,7 +472,13 @@ function shortenSentence(sentence: string, width: number): string {
   if (sentence.length <= width) {
     return sentence;
   }
-  return `${sentence.slice(0, width - 1).trim()}…`;
+  const room = sentence.slice(0, width);
+  const lastSpace = room.lastIndexOf(" ");
+  const wholeWords = (lastSpace > 0 ? room.slice(0, lastSpace) : room).trim().replace(/[,:;]+$/, "");
+  if (wholeWords.endsWith(".") || wholeWords.endsWith("!") || wholeWords.endsWith("?")) {
+    return wholeWords;
+  }
+  return `${wholeWords}.`;
 }
 
 function spreadSentences(sentences: readonly string[], limit: number): string {
@@ -493,6 +503,30 @@ function spreadSentences(sentences: readonly string[], limit: number): string {
     }
   }
   return picked.join(" ");
+}
+
+async function compactThreatModelOverview(
+  options: OrchestratorOptions,
+  overview: string | undefined,
+  recordUsage: (usage: ProviderUsage) => void,
+): Promise<string | undefined> {
+  if (!overview?.trim() || !overviewNeedsCompaction(overview)) {
+    return overview;
+  }
+  if (!options.enableAi || !options.provider || !options.apiKey || options.signal?.aborted) {
+    return overview;
+  }
+  try {
+    const compacted = await compactOverallSummary({
+      provider: options.provider,
+      apiKey: options.apiKey,
+      overview,
+    });
+    recordUsage(compacted.usage);
+    return compacted.text;
+  } catch {
+    return overview;
+  }
 }
 
 function buildExecutiveSummary(

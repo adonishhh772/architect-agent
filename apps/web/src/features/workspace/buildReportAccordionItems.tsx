@@ -9,15 +9,14 @@ import { MaterialButton } from "../../components/material/MaterialButton";
 import { exportReportCycloneDx } from "../export/reportExportActions";
 import { ArchitectureOverview } from "../architecture/ArchitectureOverview";
 import { FollowUpCopilot } from "../copilot/FollowUpCopilot";
-import { FindingDetailsPanel } from "../findings/FindingDetailsPanel";
-import { FindingsTable } from "../findings/FindingsTable";
+import { FindingsBoard } from "../findings/FindingsTable";
 import { Recommendations } from "../findings/Recommendations";
 import { collapseFindingsByTitle } from "../findings/uniqueFindings";
 import { FrameworkRiskPanel } from "../findings/FrameworkRiskPanel";
 import { PullRequestReview } from "../findings/PullRequestReview";
 import { StrideThreatModelPanel } from "../findings/StrideThreatModelPanel";
 import { DetailedArchitectureDiagram } from "../graph/DetailedArchitectureDiagram";
-import { SummaryBlocks } from "./SummaryBlocks";
+import { OverallSummary } from "./OverallSummary";
 import { findingsForMapLabel } from "../graph/mapSelection";
 
 interface ReportAccordionInput {
@@ -49,7 +48,13 @@ export function buildReportAccordionItems(input: ReportAccordionInput): ReportAc
       title: "Summary",
       description: "The threat model written from the code reader notes and the later agents.",
       content: (
-        <SummaryBlocks text={input.report.executiveSummary} />
+        <OverallSummary
+          text={input.report.executiveSummary}
+          providerSettings={input.providerSettings}
+          apiKey={input.apiKey}
+          transmissionConfirmed={input.transmissionConfirmed}
+          browserReady={input.browserReady}
+        />
       ),
     },
     {
@@ -106,14 +111,12 @@ export function buildReportAccordionItems(input: ReportAccordionInput): ReportAc
     title: "Findings",
     description: "Filter the evidence and open one finding at a time.",
     content: (
-      <div className="grid min-w-0 gap-6 2xl:grid-cols-[minmax(0,1.4fr)_minmax(18rem,0.7fr)]">
-        <FindingsTable
-          findings={collapseFindingsByTitle(input.report.findings)}
-          selectedFindingId={input.selectedFindingId}
-          onSelectFinding={input.onSelectFinding}
-        />
-        <FindingDetailsPanel finding={input.selectedFinding} onDispositionChange={input.onDispositionChange} />
-      </div>
+      <FindingsBoard
+        findings={collapseFindingsByTitle(input.report.findings)}
+        selectedFinding={input.selectedFinding}
+        onSelectFinding={input.onSelectFinding}
+        onDispositionChange={input.onDispositionChange}
+      />
     ),
   });
 
@@ -147,7 +150,20 @@ export function buildReportAccordionItems(input: ReportAccordionInput): ReportAc
     id: REPORT_SECTION.COVERAGE,
     title: "Coverage and export",
     description: "Indexed coverage, budget, and report downloads.",
-    content: <CoverageExport report={input.report} onExportJson={input.onExportJson} onExportMarkdown={input.onExportMarkdown} onExportHtml={input.onExportHtml} onExportSarif={input.onExportSarif} onPersistReport={input.onPersistReport} />,
+    content: (
+      <CoverageExport
+        report={input.report}
+        providerSettings={input.providerSettings}
+        apiKey={input.apiKey}
+        transmissionConfirmed={input.transmissionConfirmed}
+        browserReady={input.browserReady}
+        onExportJson={input.onExportJson}
+        onExportMarkdown={input.onExportMarkdown}
+        onExportHtml={input.onExportHtml}
+        onExportSarif={input.onExportSarif}
+        onPersistReport={input.onPersistReport}
+      />
+    ),
   });
 
   return items;
@@ -155,6 +171,10 @@ export function buildReportAccordionItems(input: ReportAccordionInput): ReportAc
 
 interface CoverageExportProps {
   report: AnalysisReport;
+  providerSettings: ProviderSettings;
+  apiKey: string | null;
+  transmissionConfirmed: boolean;
+  browserReady: boolean;
   onExportJson: () => void;
   onExportMarkdown: () => void;
   onExportHtml: () => void;
@@ -227,6 +247,10 @@ function MapFinding({ finding, onSelectFinding }: { finding: Finding; onSelectFi
 
 function CoverageExport({
   report,
+  providerSettings,
+  apiKey,
+  transmissionConfirmed,
+  browserReady,
   onExportJson,
   onExportMarkdown,
   onExportHtml,
@@ -246,8 +270,15 @@ function CoverageExport({
   ];
 
   return (
-    <div>
-      <SummaryBlocks text={report.executiveSummary} />
+    <div className="flex max-h-[32rem] flex-col" data-testid="coverage-export">
+      <div className="min-h-0 flex-1 overflow-y-auto pr-1" data-testid="coverage-export-body">
+      <OverallSummary
+        text={report.executiveSummary}
+        providerSettings={providerSettings}
+        apiKey={apiKey}
+        transmissionConfirmed={transmissionConfirmed}
+        browserReady={browserReady}
+      />
       <ul className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {stats.map((stat) => (
           <CoverageStat key={stat.label} label={stat.label} value={stat.value} />
@@ -265,7 +296,8 @@ function CoverageExport({
       </ul>
       <p className="mt-4 text-sm text-amber-700 dark:text-amber-200/90">{report.disclaimer}</p>
       <SbomList components={report.sbom ?? []} />
-      <div className="mt-5 flex flex-wrap gap-2">
+      </div>
+      <div className="mt-4 flex shrink-0 flex-wrap gap-2 border-t border-[var(--md-outline)]/30 bg-transparent pt-4" data-testid="coverage-export-actions">
         <MaterialButton variant="outlined" icon={<FileArchive className="h-4 w-4" aria-hidden />} onClick={onExportJson}>
           Export JSON
         </MaterialButton>
@@ -281,7 +313,7 @@ function CoverageExport({
         <MaterialButton variant="outlined" onClick={handleExportCycloneDx}>
           Export CycloneDX
         </MaterialButton>
-        <MaterialButton icon={<Database className="h-4 w-4" aria-hidden />} onClick={onPersistReport}>
+        <MaterialButton variant="outlined" icon={<Database className="h-4 w-4" aria-hidden />} onClick={onPersistReport}>
           Save to IndexedDB
         </MaterialButton>
       </div>

@@ -1,5 +1,4 @@
 import { PACKAGE_INVENTORY_LIMIT } from "@sentinel/analysis";
-import { graphToMermaid } from "@sentinel/graph";
 import type { AnalysisReport, Finding } from "@sentinel/schema";
 import type { ProviderSettings } from "@sentinel/schema";
 import type { RepositoryStore } from "@sentinel/ingestion";
@@ -17,7 +16,7 @@ import { collapseFindingsByTitle } from "../findings/uniqueFindings";
 import { FrameworkRiskPanel } from "../findings/FrameworkRiskPanel";
 import { PullRequestReview } from "../findings/PullRequestReview";
 import { StrideThreatModelPanel } from "../findings/StrideThreatModelPanel";
-import { MermaidDiagram } from "../graph/MermaidDiagram";
+import { DetailedArchitectureDiagram } from "../graph/DetailedArchitectureDiagram";
 import { SummaryBlocks } from "./SummaryBlocks";
 import { findingsForMapLabel } from "../graph/mapSelection";
 
@@ -56,12 +55,10 @@ export function buildReportAccordionItems(input: ReportAccordionInput): ReportAc
     {
       id: REPORT_SECTION.MAP,
       title: "Architecture map",
-      description: "The cartographer maps services and how they connect, then draws this Mermaid diagram.",
+      description: "Components, data flows, and dependency paths indexed from the repository. Hover one component to isolate its functions and every path.",
       content: (
         <ArchitectureMapSection
           report={input.report}
-          chart={input.report.architectureMermaid ?? graphToMermaid(input.report.graph)}
-          fallbackChart={graphToMermaid(input.report.graph)}
           selectedLabel={input.selectedMapLabel}
           onSelectLabel={input.onSelectMapLabel}
           onSelectFinding={input.onSelectFinding}
@@ -167,15 +164,11 @@ interface CoverageExportProps {
 
 function ArchitectureMapSection({
   report,
-  chart,
-  fallbackChart,
   selectedLabel,
   onSelectLabel,
   onSelectFinding,
 }: {
   report: AnalysisReport;
-  chart: string;
-  fallbackChart: string;
   selectedLabel: string | undefined;
   onSelectLabel: (label: string) => void;
   onSelectFinding: (findingId: string) => void;
@@ -183,7 +176,7 @@ function ArchitectureMapSection({
   const related = selectedLabel ? findingsForMapLabel(report.graph, report.findings, selectedLabel) : [];
   return (
     <div className="space-y-4">
-      <MermaidDiagram chart={chart} fallbackChart={fallbackChart} onSelectLabel={onSelectLabel} />
+      <DetailedArchitectureDiagram graph={report.graph} onSelectLabel={onSelectLabel} />
       <MapSelection related={related} selectedLabel={selectedLabel} onSelectFinding={onSelectFinding} />
     </div>
   );

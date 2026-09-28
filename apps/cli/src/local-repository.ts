@@ -1,10 +1,25 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import type { RawRepositoryFile } from "@sentinel/ingestion";
+import { prepareUploadedZipEntries, type RawRepositoryFile } from "@sentinel/ingestion";
+
+const ZIP_EXTENSION = ".zip";
 
 const MAX_FILES = 1000;
 const MAX_FILE_BYTES = 1_000_000;
 const SKIP_DIRECTORIES = new Set([".git", "node_modules", "vendor", "dist", "coverage", ".next", "analysis-artifacts"]);
+
+export async function readRepositorySource(root: string): Promise<RawRepositoryFile[]> {
+  const absoluteRoot = path.resolve(root);
+  const info = await stat(absoluteRoot);
+  if (info.isFile() && absoluteRoot.toLowerCase().endsWith(ZIP_EXTENSION)) {
+    const compressed = new Uint8Array(await readFile(absoluteRoot));
+    return prepareUploadedZipEntries(compressed).map((entry) => ({
+      path: entry.path,
+      content: entry.content,
+    }));
+  }
+  return readLocalRepositoryFiles(absoluteRoot);
+}
 
 export async function readLocalRepositoryFiles(root: string): Promise<RawRepositoryFile[]> {
   const absoluteRoot = path.resolve(root);

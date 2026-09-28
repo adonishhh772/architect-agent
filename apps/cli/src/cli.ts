@@ -16,7 +16,7 @@ import {
   sanitizeReportForExport,
   type AuditMemory,
 } from "@sentinel/schema";
-import { readLocalRepositoryFiles } from "./local-repository.js";
+import { readRepositorySource } from "./local-repository.js";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
@@ -270,7 +270,7 @@ async function loadRepository(
   repositoryKey: string;
 }> {
   if (args.repositoryPath) {
-    const files = await readLocalRepositoryFiles(args.repositoryPath);
+    const files = await readRepositorySource(args.repositoryPath);
     const folderName = path.basename(path.resolve(args.repositoryPath));
     return {
       store: buildRepositoryStore(files, { userExclusions: exclusions }),

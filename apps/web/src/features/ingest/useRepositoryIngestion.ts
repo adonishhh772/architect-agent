@@ -1,7 +1,7 @@
 import {
   buildRepositoryStore,
-  extractZipSafely,
   fetchGitHubRepository,
+  prepareUploadedZipEntries,
   parseGitHubRepositoryUrl,
   type RawRepositoryFile,
 } from "@sentinel/ingestion";
@@ -119,7 +119,7 @@ export function useRepositoryIngestion(): {
       setError(null);
       try {
         const buffer = new Uint8Array(await file.arrayBuffer());
-        const entries = extractZipSafely(buffer);
+        const entries = prepareUploadedZipEntries(buffer);
         const files: RawRepositoryFile[] = entries.map((entry) => ({
           path: entry.path,
           content: entry.content,

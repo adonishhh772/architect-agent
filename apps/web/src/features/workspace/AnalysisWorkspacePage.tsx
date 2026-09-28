@@ -243,17 +243,24 @@ export function AnalysisWorkspacePage(): JSX.Element {
   };
 
   const handleZipUpload = async (file: File): Promise<void> => {
-    const result = await ingestion.ingestZipFile(file, exclusionList);
-    setStore(result.store);
-    setSourceLabel(result.sourceLabel);
-    setCommitSha(undefined);
-    setReport(null);
-    setStatusMessage("ZIP repository indexed locally and saved to this browser session.");
-    await persistIndexedRepository(result.store, result.sourceLabel, undefined, "", null);
+    try {
+      const result = await ingestion.ingestZipFile(file, exclusionList);
+      setRepoUrl("");
+      setStore(result.store);
+      setSourceLabel(result.sourceLabel);
+      setCommitSha(undefined);
+      setReport(null);
+      setStatusMessage("ZIP indexed in this workspace. Run the threat model to audit this archive.");
+      await persistIndexedRepository(result.store, result.sourceLabel, undefined, "", null);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "ZIP ingestion failed";
+      setStatusMessage(message);
+    }
   };
 
   const handleZipInputChange = (event: ChangeEvent<HTMLInputElement>): void => {
     const file = event.target.files?.[0];
+    event.target.value = "";
     if (file) {
       void handleZipUpload(file);
     }

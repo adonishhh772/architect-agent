@@ -16,6 +16,7 @@ export const EncryptedVaultBlobSchema = z.object({
   salt: z.string().min(1),
   iv: z.string().min(1),
   ciphertext: z.string().min(1),
+  workspaceSalt: z.string().min(1).optional(),
 });
 
 export type EncryptedVaultBlob = z.infer<typeof EncryptedVaultBlobSchema>;
@@ -60,6 +61,8 @@ export async function sealVaultJson(
   };
 }
 
+export const WORKSPACE_KEY_MISMATCH_MESSAGE = "Saved workspace data could not be opened with this vault key.";
+
 export async function openVaultJson(key: CryptoKey, sealed: { iv: string; ciphertext: string }): Promise<unknown> {
   try {
     const plaintextBuffer = await crypto.subtle.decrypt(
@@ -69,7 +72,7 @@ export async function openVaultJson(key: CryptoKey, sealed: { iv: string; cipher
     );
     return JSON.parse(new TextDecoder().decode(plaintextBuffer));
   } catch {
-    throw new Error("Unlock the vault to read this workspace.");
+    throw new Error(WORKSPACE_KEY_MISMATCH_MESSAGE);
   }
 }
 
@@ -99,6 +102,7 @@ async function deriveVaultKey(passphrase: string, salt: Uint8Array): Promise<Cry
 export async function encryptVaultSecrets(
   secrets: VaultSecrets,
   passphrase: string,
+  workspaceSalt?: string,
 ): Promise<EncryptedVaultBlob> {
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -111,6 +115,7 @@ export async function encryptVaultSecrets(
     salt: encodeBase64(salt),
     iv: encodeBase64(iv),
     ciphertext: encodeBase64(new Uint8Array(ciphertextBuffer)),
+    workspaceSalt,
   };
 }
 

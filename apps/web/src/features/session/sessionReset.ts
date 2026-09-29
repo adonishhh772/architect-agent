@@ -1,6 +1,6 @@
 import { clearStoredProviderSettings } from "../provider/providerSettingsStorage.js";
 import { clearWorkspaceSession } from "../workspace/workspaceSessionStore.js";
-import { clearStoredVaultBlob } from "../vault/vaultStorage.js";
+import { clearStoredVaultBlob, clearWorkspaceSalt } from "../vault/vaultStorage.js";
 
 const INDEXED_DB_NAME = "architecture-sentinel";
 
@@ -19,6 +19,7 @@ export async function clearSentinelIndexedDb(): Promise<void> {
 /** Removes vault, provider prefs, and saved reports from this browser. Theme is kept. */
 export async function clearAllSentinelSessionData(): Promise<void> {
   clearStoredVaultBlob();
+  clearWorkspaceSalt();
   clearStoredProviderSettings();
   await clearWorkspaceSession().catch(() => undefined);
   await clearSentinelIndexedDb();

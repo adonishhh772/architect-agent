@@ -101,50 +101,61 @@ export function AnalysisWorkspacePage(): JSX.Element {
   const [openedAgentWork, setOpenedAgentWork] = useState<AgentWorkItem[]>([]);
   const [runListError, setRunListError] = useState<string | null>(null);
 
-  const vaultCipher = session.getVaultCipher();
+  const vaultStatus = session.vaultStatus;
+  const readVaultCipher = session.getVaultCipher;
 
   useEffect(() => {
     let cancelled = false;
-    if (!vaultCipher) {
+    const cipher = vaultStatus === "unlocked" ? readVaultCipher() : null;
+    if (!cipher) {
       setStore(null);
       setReport(null);
       setSavedRuns([]);
       setOpenedAgentWork([]);
       setSelectedRunId(null);
+      setRunListError(null);
       setSessionRestored(true);
       return;
     }
     const restoreWorkspace = async (): Promise<void> => {
-      const snapshot = await loadWorkspaceSession(vaultCipher);
-      if (cancelled) {
-        return;
-      }
-      if (snapshot) {
-        setStore(snapshot.store);
-        setSourceLabel(snapshot.sourceLabel);
-        setCommitSha(snapshot.commitSha);
-        if (snapshot.repoUrl) {
-          setRepoUrl(snapshot.repoUrl);
-        }
-        await rememberRestoredRun(snapshot.lastReport);
+      try {
+        const snapshot = await loadWorkspaceSession(cipher);
         if (cancelled) {
           return;
         }
-        setStatusMessage(
-          `Restored indexed repository (“${snapshot.sourceLabel}”) saved ${new Date(snapshot.savedAt).toLocaleString()}.`,
-        );
-      } else {
-        await refreshSavedRuns();
-      }
-      if (!cancelled) {
-        setSessionRestored(true);
+        if (snapshot) {
+          setStore(snapshot.store);
+          setSourceLabel(snapshot.sourceLabel);
+          setCommitSha(snapshot.commitSha);
+          if (snapshot.repoUrl) {
+            setRepoUrl(snapshot.repoUrl);
+          }
+          await rememberRestoredRun(snapshot.lastReport, cipher);
+          if (cancelled) {
+            return;
+          }
+          setStatusMessage(
+            `Restored indexed repository (“${snapshot.sourceLabel}”) saved ${new Date(snapshot.savedAt).toLocaleString()}.`,
+          );
+        } else {
+          await refreshSavedRuns(cipher);
+        }
+        if (!cancelled) {
+          setSessionRestored(true);
+        }
+      } catch (caught) {
+        if (!cancelled) {
+          const message = caught instanceof Error ? caught.message : "Could not load saved runs.";
+          setRunListError(message);
+          setSessionRestored(true);
+        }
       }
     };
     void restoreWorkspace();
     return () => {
       cancelled = true;
     };
-  }, [vaultCipher]);
+  }, [vaultStatus, readVaultCipher]);
 
   const exclusionList = useMemo(
     () =>
@@ -300,7 +311,7 @@ export function AnalysisWorkspacePage(): JSX.Element {
       setOpenedAgentWork(completed.agentWork);
       setSelectedRunId(completed.report.id);
       await saveReportLocally(completed.report, completed.agentWork, session.getVaultCipher());
-      await refreshSavedRuns();
+      await refreshSavedRuns(session.getVaultCipher());
       await persistIndexedRepository(store, sourceLabel, commitSha, repoUrl, completed.report);
       setWorkspaceView(WORKSPACE_VIEW.INSPECT);
       setOpenReportSection(REPORT_SECTION.SUMMARY);
@@ -318,7 +329,7 @@ export function AnalysisWorkspacePage(): JSX.Element {
       return;
     }
     await saveReportLocally(report, openedAgentWork, session.getVaultCipher());
-    await refreshSavedRuns();
+    await refreshSavedRuns(session.getVaultCipher());
     setSelectedRunId(report.id);
     setStatusMessage("Report saved locally in IndexedDB (secrets excluded).");
   };
@@ -475,7 +486,7 @@ export function AnalysisWorkspacePage(): JSX.Element {
         setOpenedAgentWork([]);
         setSelectedFindingId(undefined);
       }
-      await refreshSavedRuns();
+      await refreshSavedRuns(session.getVaultCipher());
       try {
         await forgetDeletedReportFromSession(selected.id);
       } catch {
@@ -556,13 +567,13 @@ export function AnalysisWorkspacePage(): JSX.Element {
     setStatusMessage(`Opened run “${selected.report.title}”.`);
   };
 
-  const rememberRestoredRun = async (lastReport: AnalysisReport | undefined): Promise<void> => {
+  const rememberRestoredRun = async (lastReport: AnalysisReport | undefined, cipher: CryptoKey): Promise<void> => {
     try {
       if (lastReport) {
-        const existing = await listSavedReports(session.getVaultCipher());
+        const existing = await listSavedReports(cipher);
         const alreadySaved = existing.some((record) => record.id === lastReport.id);
         if (!alreadySaved) {
-          await saveReportLocally(lastReport, [], session.getVaultCipher());
+          await saveReportLocally(lastReport, [], cipher);
         }
       }
     } catch (caught) {
@@ -570,12 +581,17 @@ export function AnalysisWorkspacePage(): JSX.Element {
       setRunListError(message);
       return;
     }
-    await refreshSavedRuns();
+    await refreshSavedRuns(cipher);
   };
 
-  const refreshSavedRuns = async (): Promise<void> => {
+  const refreshSavedRuns = async (cipher: CryptoKey | null): Promise<void> => {
+    if (!cipher) {
+      setSavedRuns([]);
+      setRunListError(null);
+      return;
+    }
     try {
-      const records = await listSavedReports(session.getVaultCipher());
+      const records = await listSavedReports(cipher);
       setSavedRuns(records);
       setRunListError(null);
     } catch (caught) {
@@ -725,16 +741,26 @@ export function AnalysisWorkspacePage(): JSX.Element {
               </button>
             </div>
           )}
-          <RunHistory
-            runs={savedRuns}
-            selectedRunId={selectedRunId}
-            error={runListError}
-            onSelectRun={handleToggleRun}
-            onExportRun={handleExportRun}
-            onDeleteRun={handleDeleteRun}
-            deletingRunId={deletingRunId}
-            openRunContent={openWorkspaceReport}
-          />
+          {vaultStatus !== "unlocked" ? (
+            <p className="text-sm text-[var(--md-on-surface-variant)]" data-testid="saved-runs-locked">
+              Unlock the vault on{" "}
+              <Link to="/providers" className="text-[var(--md-primary)] underline">
+                Providers
+              </Link>{" "}
+              to load saved workspaces.
+            </p>
+          ) : (
+            <RunHistory
+              runs={savedRuns}
+              selectedRunId={selectedRunId}
+              error={runListError}
+              onSelectRun={handleToggleRun}
+              onExportRun={handleExportRun}
+              onDeleteRun={handleDeleteRun}
+              deletingRunId={deletingRunId}
+              openRunContent={openWorkspaceReport}
+            />
+          )}
         </PageSection>
       )}
 

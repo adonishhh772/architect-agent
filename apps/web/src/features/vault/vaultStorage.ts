@@ -3,6 +3,38 @@ import { EncryptedVaultBlobSchema, createVaultSalt, type EncryptedVaultBlob } fr
 const VAULT_STORAGE_KEY = "sentinel-encrypted-vault";
 const WORKSPACE_SALT_KEY = "sentinel-workspace-salt";
 
+export interface WorkspaceSaltChoice {
+  salt: string;
+  persistLocal: boolean;
+  persistSession: boolean;
+}
+
+export function chooseWorkspaceSalt(input: {
+  localSalt: string | null;
+  sessionSalt: string | null;
+  createdSalt: string;
+}): WorkspaceSaltChoice {
+  if (input.localSalt) {
+    return {
+      salt: input.localSalt,
+      persistLocal: false,
+      persistSession: input.sessionSalt !== input.localSalt,
+    };
+  }
+  if (input.sessionSalt) {
+    return {
+      salt: input.sessionSalt,
+      persistLocal: true,
+      persistSession: false,
+    };
+  }
+  return {
+    salt: input.createdSalt,
+    persistLocal: true,
+    persistSession: true,
+  };
+}
+
 export function readStoredVaultBlob(): EncryptedVaultBlob | null {
   const raw = sessionStorage.getItem(VAULT_STORAGE_KEY);
   if (!raw) {
@@ -23,17 +55,35 @@ export function writeStoredVaultBlob(blob: EncryptedVaultBlob): void {
 
 export function clearStoredVaultBlob(): void {
   sessionStorage.removeItem(VAULT_STORAGE_KEY);
+}
+
+export function clearWorkspaceSalt(): void {
+  localStorage.removeItem(WORKSPACE_SALT_KEY);
   sessionStorage.removeItem(WORKSPACE_SALT_KEY);
 }
 
 export function readOrCreateWorkspaceSalt(): string {
-  const existing = sessionStorage.getItem(WORKSPACE_SALT_KEY);
-  if (existing) {
-    return existing;
+  const chosen = chooseWorkspaceSalt({
+    localSalt: readStorageSalt(localStorage),
+    sessionSalt: readStorageSalt(sessionStorage),
+    createdSalt: createVaultSalt(),
+  });
+  if (chosen.persistLocal) {
+    localStorage.setItem(WORKSPACE_SALT_KEY, chosen.salt);
   }
-  const salt = createVaultSalt();
-  sessionStorage.setItem(WORKSPACE_SALT_KEY, salt);
-  return salt;
+  if (chosen.persistSession) {
+    sessionStorage.setItem(WORKSPACE_SALT_KEY, chosen.salt);
+  }
+  return chosen.salt;
+}
+
+function readStorageSalt(storage: Storage): string | null {
+  try {
+    const value = storage.getItem(WORKSPACE_SALT_KEY);
+    return value && value.length > 0 ? value : null;
+  } catch {
+    return null;
+  }
 }
 
 export function hasStoredVaultBlob(): boolean {

@@ -109,7 +109,8 @@ export function SessionProvider({ children }: SessionProviderProps): JSX.Element
     if (!passphrase) {
       throw new Error("Vault is locked");
     }
-    const encrypted = await encryptVaultSecrets(secrets, passphrase);
+    const workspaceSalt = readStoredVaultBlob()?.workspaceSalt ?? readOrCreateWorkspaceSalt();
+    const encrypted = await encryptVaultSecrets(secrets, passphrase, workspaceSalt);
     writeStoredVaultBlob(encrypted);
     setHasStoredVault(true);
     if (secrets.providerSettings) {
@@ -203,10 +204,11 @@ export function SessionProvider({ children }: SessionProviderProps): JSX.Element
         providerSettings:
           secrets.providerSettings ?? localProviderSettings ?? providerSettings,
       };
-      const encrypted = await encryptVaultSecrets(mergedSecrets, passphrase);
+      const workspaceSalt = readOrCreateWorkspaceSalt();
+      const encrypted = await encryptVaultSecrets(mergedSecrets, passphrase, workspaceSalt);
       writeStoredVaultBlob(encrypted);
       unlockPassphraseRef.current = passphrase;
-      vaultCipherRef.current = await openVaultCipher(passphrase, readOrCreateWorkspaceSalt());
+      vaultCipherRef.current = await openVaultCipher(passphrase, workspaceSalt);
       memorySecretsRef.current = mergedSecrets;
       setHasStoredVault(true);
       setVaultStatus("unlocked");
@@ -235,8 +237,12 @@ export function SessionProvider({ children }: SessionProviderProps): JSX.Element
     }
     try {
       const secrets = await decryptVaultSecrets(blob, passphrase);
+      const workspaceSalt = blob.workspaceSalt ?? readOrCreateWorkspaceSalt();
+      if (blob.workspaceSalt !== workspaceSalt) {
+        writeStoredVaultBlob({ ...blob, workspaceSalt });
+      }
       unlockPassphraseRef.current = passphrase;
-      vaultCipherRef.current = await openVaultCipher(passphrase, readOrCreateWorkspaceSalt());
+      vaultCipherRef.current = await openVaultCipher(passphrase, workspaceSalt);
       memorySecretsRef.current = secrets;
       setVaultStatus("unlocked");
       setHasModelApiKey(Boolean(secrets.modelApiKey));

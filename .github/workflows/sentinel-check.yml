@@ -1,0 +1,32 @@
+name: Sentinel check
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  static-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-node@v4.2.0
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w @sentinel/cli
+      - name: Scan this pull request without executing it
+        run: |
+          node apps/cli/dist/cli.js \
+            --repositoryPath . \
+            --enableAi false \
+            --failOnRisk 20 \
+            --exclude __tests__,fixtures \
+            --outputDir ./analysis-artifacts
+      - uses: actions/upload-artifact@v4.6.0
+        if: always()
+        with:
+          name: architecture-sentinel-sarif
+          path: analysis-artifacts/*.sarif

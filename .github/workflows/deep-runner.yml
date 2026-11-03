@@ -1,0 +1,66 @@
+name: Deep Runner Analysis
+
+on:
+  workflow_dispatch:
+    inputs:
+      repository_url:
+        description: Public GitHub repository URL to analyze
+        required: true
+        type: string
+      ref:
+        description: Optional git ref or commit
+        required: false
+        type: string
+      provider_id:
+        description: AI provider id (openai, anthropic, gemini, deepseek, openai_compatible)
+        required: true
+        default: openai
+        type: string
+      model_id:
+        description: Model ID
+        required: true
+        default: gpt-4o-mini
+        type: string
+      max_requests:
+        description: Analysis request budget
+        required: true
+        default: "10"
+        type: string
+      max_tokens:
+        description: Token budget
+        required: true
+        default: "100000"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-node@v4.2.0
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w @sentinel/cli
+      - name: Run Deep Runner
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SENTINEL_API_KEY: ${{ secrets.SENTINEL_API_KEY }}
+          SENTINEL_API_ENDPOINT: ${{ secrets.SENTINEL_API_ENDPOINT }}
+        run: |
+          node apps/cli/dist/cli.js \
+            --repositoryUrl "${{ github.event.inputs.repository_url }}" \
+            --ref "${{ github.event.inputs.ref }}" \
+            --providerId "${{ github.event.inputs.provider_id }}" \
+            --modelId "${{ github.event.inputs.model_id }}" \
+            --maxRequests "${{ github.event.inputs.max_requests }}" \
+            --maxTokens "${{ github.event.inputs.max_tokens }}" \
+            --outputDir ./analysis-artifacts
+      - uses: actions/upload-artifact@v4.6.0
+        with:
+          name: architecture-sentinel-report
+          path: analysis-artifacts/*.json

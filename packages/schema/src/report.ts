@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AnalystStateSchema } from "./analyst.js";
 import { FileReferenceSchema } from "./evidence.js";
 import { AGENT_RUN_STATUS, ANALYSIS_MODE, REPORT_SCHEMA_VERSION, SOURCE_LANGUAGE_LIST } from "./constants.js";
 import { ArchitectureGraphSchema } from "./graph.js";
@@ -126,6 +127,7 @@ export const AnalysisReportSchema = z.object({
   budget: AnalysisBudgetSchema,
   memory: AuditMemorySchema.optional(),
   pullRequestReview: PullRequestReviewSchema.optional(),
+  analyst: AnalystStateSchema.optional(),
   checkpointId: z.string().optional(),
 });
 

@@ -10,3 +10,5 @@ export * from "./report.js";
 export * from "./sanitize-export.js";
 export * from "./validate-evidence.js";
 export * from "./repository-index.js";
+
+export * from "./analyst.js";

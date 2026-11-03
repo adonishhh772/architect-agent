@@ -1,0 +1,23 @@
+rules:
+  - id: sentinel.untrusted-eval
+    languages: [javascript, typescript]
+    message: Request-controlled value may reach dynamic evaluation. Review controls and reachability.
+    severity: ERROR
+    mode: taint
+    pattern-sources:
+      - pattern-either:
+          - pattern: req.body
+          - pattern: req.query
+          - pattern: req.params
+    pattern-sinks:
+      - pattern: eval(...)
+  - id: sentinel.python-shell-input
+    languages: [python]
+    message: Request-controlled value may reach a shell command. Review argument handling and reachability.
+    severity: ERROR
+    mode: taint
+    pattern-sources:
+      - pattern: request.args.get(...)
+      - pattern: request.form.get(...)
+    pattern-sinks:
+      - pattern: os.system(...)

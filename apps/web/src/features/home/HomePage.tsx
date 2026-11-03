@@ -44,10 +44,10 @@ export function HomePage(): JSX.Element {
           <div className="home-hero-copy">
             <p className="inline-flex items-center gap-2 rounded-full border border-[var(--md-primary)]/30 bg-[var(--md-primary-container)]/50 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-[var(--md-primary)]">
               <Sparkles className="h-3.5 w-3.5" aria-hidden />
-              Architecture Sentinel
+              Architecture Sentinel · Analyst workbench
             </p>
             <h1 className="font-display mt-5 text-4xl font-bold leading-[1.08] tracking-tight text-[var(--md-on-surface)] sm:text-5xl lg:text-[3.25rem]">
-              See how software is built, connected, and exposed
+              Follow the evidence. Review the threat.
             </h1>
             <p className="mt-5 max-w-xl text-base leading-relaxed text-[var(--md-on-surface-variant)] sm:text-lg">
               Investigate repositories locally: reconstruct architecture, trace data across trust

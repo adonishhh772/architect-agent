@@ -244,7 +244,7 @@ describe("risk ranking", () => {
 });
 
 describe("pull request gate", () => {
-  it("marks a missing prior finding fixed and a returned finding regressed", () => {
+  it("marks an explicitly verified fix and a returned finding regressed", () => {
     const priorMemory: AuditMemory = {
       repositoryKey: "acme/app",
       filesRead: [],
@@ -270,6 +270,7 @@ describe("pull request gate", () => {
       ],
       priorMemory,
       commitSha: "abc",
+      verifiedFixedKeys: ["eval-src-a-1"],
     });
     expect(lifecycle.fixedFindingKeys).toEqual(["eval-src-a-1"]);
     expect(lifecycle.regressedFindingKeys).toEqual(["secret-token-src-b-2"]);

@@ -36,6 +36,7 @@ export function useAnalysisRunner(): {
     providerSettings: ProviderSettings;
     apiKey?: string;
     enableAi: boolean;
+    budget?: {maxRequests:number;maxTokens:number};
     advisoryLookupConsent: boolean;
     exclusions: string[];
   }) => Promise<AnalysisRunResult>;
@@ -54,7 +55,7 @@ export function useAnalysisRunner(): {
   }, []);
 
   const runBrowserAnalysis = useCallback(
-    async (input) => {
+    async (input: Parameters<ReturnType<typeof useAnalysisRunner>["runBrowserAnalysis"]>[0]) => {
       setIsRunning(true);
       setError(null);
       agentWorkRef.current = [];
@@ -96,7 +97,7 @@ export function useAnalysisRunner(): {
             agentWorkRef.current = nextWork;
             setAgentWork(nextWork);
           },
-          budget: {},
+          budget: input.budget ?? {maxRequests:100,maxTokens:100000},
           githubToken: input.githubToken,
           priorMemory: input.priorMemory,
           advisoryLookupConsent: input.advisoryLookupConsent,

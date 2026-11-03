@@ -92,11 +92,11 @@ export function extractArchitectureFromTypeScript(
   addNode({
     id: nodeId("boundary", "internet"),
     kind: GRAPH_NODE_KIND.TRUST_BOUNDARY,
-    label: "Internet / Untrusted Clients",
+    label: "External boundary · exposure unknown",
     provenance: {
       kind: PROVENANCE_KIND.INFERRED,
       confidence: 0.5,
-      rationale: "External trust boundary for public clients",
+      rationale: "Candidate external boundary. Actual deployment exposure is unknown.",
       references: [],
     },
   });
@@ -141,7 +141,7 @@ export function extractArchitectureFromTypeScript(
           target: apiId,
           kind: "crosses_trust_boundary",
           bidirectional: false,
-          provenance: makeProvenance(path, 0.7, "Public HTTP entry crosses external boundary", input.commitSha),
+          provenance: {...makeProvenance(path, 0.4, "Route registration observed; deployment exposure unknown", input.commitSha), kind: PROVENANCE_KIND.INFERRED},
         });
         match = pattern.exec(content);
       }
@@ -267,5 +267,6 @@ export function extractArchitectureFromTypeScript(
   }
   edges.push(...callFlows.edges);
 
-  return { nodes, edges };
+  const uncertainFlowKinds = new Set(["data_flow", "stores_in", "retrieves_from", "invokes_tool", "crosses_trust_boundary"]);
+  return { nodes, edges: edges.map(edge => uncertainFlowKinds.has(edge.kind) ? {...edge, provenance: {...edge.provenance, kind: PROVENANCE_KIND.INFERRED, rationale: (edge.provenance.rationale ?? "Static connection") + "; runtime path, direction and controls require verification."}} : edge) };
 }

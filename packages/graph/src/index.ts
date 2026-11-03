@@ -6,3 +6,4 @@ export * from "./polyglot-architecture.js";
 export * from "./architecture-profile.js";
 export * from "./mermaid-architecture.js";
 export * from "./source-language.js";
+export * from "./data-flow-model.js";

@@ -27,6 +27,8 @@ jobs:
       - run: npm run build
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
+      - name: Regression checks
+        run: npm run test:unit
       - uses: actions/upload-pages-artifact@v3.0.1
         with:
           path: apps/web/dist

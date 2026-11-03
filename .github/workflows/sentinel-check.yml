@@ -16,7 +16,7 @@ jobs:
           node-version: "20"
           cache: npm
       - run: npm ci
-      - run: npm run build -w @sentinel/cli
+      - run: npm run build
       - name: Scan this pull request without executing it
         run: |
           node apps/cli/dist/cli.js \

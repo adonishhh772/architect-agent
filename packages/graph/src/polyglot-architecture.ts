@@ -70,7 +70,8 @@ export function extractArchitecture(input: ExtractionInput): ArchitectureGraph {
   }
 
   collectManifestDependencies(input, addNode, edges);
-  return { nodes, edges };
+  const uncertainFlowKinds = new Set(["data_flow", "stores_in", "retrieves_from", "invokes_tool", "crosses_trust_boundary"]);
+  return { nodes, edges: edges.map(edge => uncertainFlowKinds.has(edge.kind) ? {...edge, provenance: {...edge.provenance, kind: PROVENANCE_KIND.INFERRED, rationale: (edge.provenance.rationale ?? "Static connection") + "; runtime path, direction and controls require verification."}} : edge) };
 }
 
 function collectRoutes(
@@ -101,7 +102,7 @@ function collectRoutes(
       target: apiId,
       kind: "crosses_trust_boundary",
       bidirectional: false,
-      provenance: observed(path, 0.7, "Public HTTP entry crosses external boundary", commitSha),
+      provenance: {...observed(path, 0.4, "Route registration observed; external exposure is unknown", commitSha), kind: "inferred"},
     });
     match = pattern.exec(content);
   }

@@ -96,3 +96,7 @@ Tests cover ZIP safety, provider JSON repair, prompt-injection sanitization, sta
 ## Deployment (GitHub Pages)
 
 Push to `main` runs `.github/workflows/deploy-pages.yml`. Set repository **Pages** source to **GitHub Actions**. The build sets `base` to `/<repo-name>/` automatically in Actions.
+
+## Analyst workbench
+
+See [Analyst workbench](docs/ANALYST-WORKBENCH.md) for data-flow review, scanner import, control assessments, private local scanning and verification workflows.

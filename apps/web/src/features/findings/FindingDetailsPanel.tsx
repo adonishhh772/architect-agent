@@ -38,7 +38,7 @@ export function FindingDetailsPanel({ finding, onDispositionChange }: FindingDet
 
   function handleDispositionClick(event: MouseEvent<HTMLButtonElement>): void {
     const disposition = event.currentTarget.dataset.disposition;
-    if (!onDispositionChange || !isDisposition(disposition)) {
+    if (!finding || !onDispositionChange || !isDisposition(disposition)) {
       return;
     }
     onDispositionChange(finding.stableKey, disposition);

@@ -1,7 +1,7 @@
 import { FINDING_DISPOSITION, type AnalysisReport, type Finding, type ProviderSettings } from "@sentinel/schema";
 import { FileArchive } from "lucide-react";
 import type { RepositoryStore } from "@sentinel/ingestion";
-import { ReportAccordion } from "../../../components/layout/ReportAccordion";
+import { AnalystWorkbench } from "../../analyst/AnalystWorkbench";
 import { PageSection } from "../../../components/layout/PageSection";
 import { AgentActivityPanel } from "../../analysis/AgentActivityPanel";
 import type { AgentWorkItem } from "../../analysis/AgentActivityPanel/agentWorkState";
@@ -33,6 +33,7 @@ interface OpenWorkspaceReportProps {
   onExportHtml: () => void;
   onExportSarif: () => void;
   onPersistReport: () => void;
+  onReportUpdate: (report: AnalysisReport) => void;
   onSelectMapLabel: (label: string) => void;
   onSelectCitation: (path: string) => void;
   onOpenReportSection: (sectionId: string) => void;
@@ -61,6 +62,7 @@ export function OpenWorkspaceReport({
   onExportHtml,
   onExportSarif,
   onPersistReport,
+  onReportUpdate,
   onSelectMapLabel,
   onSelectCitation,
   onOpenReportSection,
@@ -74,7 +76,12 @@ export function OpenWorkspaceReport({
         </p>
       )}
       {agentWork.length > 0 && <AgentActivityPanel agents={agentWork} />}
-      <ReportAccordion
+      <AnalystWorkbench
+        report={report}
+        contents={store?.contents ?? null}
+        selectedFinding={selectedFinding}
+        onSelectFinding={onSelectFinding}
+        onUpdate={onReportUpdate}
         items={buildReportAccordionItems({
           report,
           store,

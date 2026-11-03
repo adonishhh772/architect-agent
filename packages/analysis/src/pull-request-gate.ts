@@ -23,12 +23,13 @@ export function reconcileFindingLifecycle(input: {
   findings: Finding[];
   priorMemory?: AuditMemory;
   commitSha?: string;
+  verifiedFixedKeys?: string[];
 }): FindingLifecycleResult {
   const prior = priorLifecycle(input.priorMemory);
   const currentKeys = new Set(input.findings.map((finding) => finding.stableKey));
   const fixedFindingKeys: string[] = [];
   for (const [stableKey, lifecycle] of prior) {
-    if (!currentKeys.has(stableKey) && lifecycle !== FINDING_LIFECYCLE.FIXED) {
+    if (!currentKeys.has(stableKey) && lifecycle !== FINDING_LIFECYCLE.FIXED && input.verifiedFixedKeys?.includes(stableKey)) {
       fixedFindingKeys.push(stableKey);
     }
   }
@@ -58,6 +59,7 @@ export function reconcileFindingLifecycle(input: {
       lifecycle: FINDING_LIFECYCLE.FIXED,
       commitSha: input.commitSha,
     })),
+    ...[...prior.entries()].filter(([key]) => !currentKeys.has(key) && !fixedFindingKeys.includes(key)).map(([stableKey, lifecycle]) => ({stableKey, lifecycle, commitSha: input.priorMemory?.commitSha})),
   ].slice(0, RECORD_LIMIT);
 
   return { findings, records, newFindingKeys, fixedFindingKeys, regressedFindingKeys };
@@ -85,7 +87,7 @@ export function buildPullRequestReview(input: {
     "",
   ];
   if (!input.hasPriorMemory) {
-    lines.push("First snapshot for this repository. Later runs will mark findings fixed or regressed.");
+    lines.push("First snapshot for this repository. Missing findings are not proof of a fix; record a verification result.");
     lines.push("");
   }
   lines.push("### New or regressed");

@@ -9,7 +9,7 @@ export const EXPAND_MENU_LABEL = "Expand menu";
 export const CLOSE_MENU_BACKDROP_LABEL = "Close menu";
 
 export function readSidebarCollapsed(stored: string | null): boolean {
-  return stored !== SIDEBAR_EXPANDED_VALUE;
+  return stored === SIDEBAR_COLLAPSED_VALUE;
 }
 
 export function sidebarCollapsedStorageValue(collapsed: boolean): string {

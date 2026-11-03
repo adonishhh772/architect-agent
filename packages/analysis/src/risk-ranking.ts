@@ -19,7 +19,6 @@ const LIKELIHOOD = {
   PLAUSIBLE: 3,
   ARCHITECTURE: 2,
   INSUFFICIENT: 1,
-  DATA_FLOW_BONUS: 1,
   MAX: 5,
 } as const;
 
@@ -125,10 +124,7 @@ export function buildRankedRecommendations(findings: Finding[]): AnalysisReport[
 
 function scoreFinding(finding: Finding): Finding {
   const impact = impactFor(finding);
-  let likelihood = likelihoodFor(finding);
-  if ((finding.dataFlow?.steps.length ?? 0) >= 2) {
-    likelihood = Math.min(LIKELIHOOD.MAX, likelihood + LIKELIHOOD.DATA_FLOW_BONUS);
-  }
+  const likelihood = likelihoodFor(finding);
   return {
     ...finding,
     impact,

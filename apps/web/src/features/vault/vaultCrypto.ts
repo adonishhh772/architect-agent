@@ -66,9 +66,9 @@ export const WORKSPACE_KEY_MISMATCH_MESSAGE = "Saved workspace data could not be
 export async function openVaultJson(key: CryptoKey, sealed: { iv: string; ciphertext: string }): Promise<unknown> {
   try {
     const plaintextBuffer = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: decodeBase64(sealed.iv) },
+      { name: "AES-GCM", iv: new Uint8Array(decodeBase64(sealed.iv)) },
       key,
-      decodeBase64(sealed.ciphertext),
+      new Uint8Array(decodeBase64(sealed.ciphertext)),
     );
     return JSON.parse(new TextDecoder().decode(plaintextBuffer));
   } catch {
@@ -88,7 +88,7 @@ async function deriveVaultKey(passphrase: string, salt: Uint8Array): Promise<Cry
   return crypto.subtle.deriveKey(
     {
       name: "PBKDF2",
-      salt,
+      salt: new Uint8Array(salt),
       iterations: PBKDF2_ITERATIONS,
       hash: "SHA-256",
     },
@@ -129,7 +129,7 @@ export async function decryptVaultSecrets(
   const ciphertext = decodeBase64(parsedBlob.ciphertext);
   const key = await deriveVaultKey(passphrase, salt);
   try {
-    const plaintextBuffer = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext);
+    const plaintextBuffer = await crypto.subtle.decrypt({ name: "AES-GCM", iv: new Uint8Array(iv) }, key, new Uint8Array(ciphertext));
     const decoder = new TextDecoder();
     const parsed: unknown = JSON.parse(decoder.decode(plaintextBuffer));
     return VaultSecretsSchema.parse(parsed);

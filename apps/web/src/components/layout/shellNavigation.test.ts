@@ -7,9 +7,9 @@ import {
 } from "./shellNavigation";
 
 describe("readSidebarCollapsed", () => {
-  it("starts collapsed when nothing has been saved", () => {
-    expect(readSidebarCollapsed(null)).toBe(true);
-    expect(readSidebarCollapsed("")).toBe(true);
+  it("starts expanded when nothing has been saved", () => {
+    expect(readSidebarCollapsed(null)).toBe(false);
+    expect(readSidebarCollapsed("")).toBe(false);
     expect(readSidebarCollapsed(SIDEBAR_COLLAPSED_VALUE)).toBe(true);
   });
 

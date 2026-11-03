@@ -1,5 +1,5 @@
 import { FINDING_DISPOSITION, type AnalysisReport, type AuditMemory } from "@sentinel/schema";
-import { useEffect, useMemo, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { Link } from "react-router-dom";
 import {
   Bot,
@@ -74,7 +74,10 @@ export function AnalysisWorkspacePage(): JSX.Element {
   const session = useSession();
   const ingestion = useRepositoryIngestion();
   const runner = useAnalysisRunner();
+  const saveQueue = useRef<Promise<void>>(Promise.resolve());
 
+  const [requestLimit, setRequestLimit] = useState("100");
+  const [tokenLimit, setTokenLimit] = useState("100000");
   const [repoUrl, setRepoUrl] = useState("");
   const [exclusions, setExclusions] = useState(".env,secrets,id_rsa");
   const [githubToken, setGithubToken] = useState("");
@@ -277,8 +280,8 @@ export function AnalysisWorkspacePage(): JSX.Element {
     }
   };
 
-  const handleRunAnalysis = async (): Promise<void> => {
-    if (analysisBlockedReason) {
+  const handleRunAnalysis = async (enableAi = true): Promise<void> => {
+    if (enableAi && analysisBlockedReason) {
       setStatusMessage(analysisBlockedReason);
       return;
     }
@@ -286,7 +289,7 @@ export function AnalysisWorkspacePage(): JSX.Element {
       return;
     }
     setOpenedAgentWork([]);
-    setStatusMessage("Running full-repository threat model, including open pull requests when GitHub is available…");
+    setStatusMessage(enableAi ? "Running evidence-backed AI threat review…" : "Running static review without transmitting source to an AI provider…");
     const repoRef = repoUrl ? parseGitHubRepositoryUrl(repoUrl) : null;
     const priorMemory = report?.memory && report.repository.url === repoUrl ? report.memory : undefined;
     setReport(null);
@@ -303,16 +306,19 @@ export function AnalysisWorkspacePage(): JSX.Element {
         priorMemory,
         providerSettings: session.providerSettings,
         apiKey: session.getModelApiKey() ?? undefined,
-        enableAi: true,
+        enableAi,
+        budget: {maxRequests:Math.max(1,Math.min(1000,Number(requestLimit)||100)),maxTokens:Math.max(1000,Math.min(2000000,Number(tokenLimit)||100000))},
         advisoryLookupConsent,
         exclusions: exclusionList,
       });
       setReport(completed.report);
       setOpenedAgentWork(completed.agentWork);
       setSelectedRunId(completed.report.id);
-      await saveReportLocally(completed.report, completed.agentWork, session.getVaultCipher());
-      await refreshSavedRuns(session.getVaultCipher());
-      await persistIndexedRepository(store, sourceLabel, commitSha, repoUrl, completed.report);
+      if (session.getVaultCipher()) {
+        await saveReportLocally(completed.report, completed.agentWork, session.getVaultCipher());
+        await refreshSavedRuns(session.getVaultCipher());
+        await persistIndexedRepository(store, sourceLabel, commitSha, repoUrl, completed.report);
+      }
       setWorkspaceView(WORKSPACE_VIEW.INSPECT);
       setOpenReportSection(REPORT_SECTION.SUMMARY);
       setStatusMessage(
@@ -322,6 +328,16 @@ export function AnalysisWorkspacePage(): JSX.Element {
       const message = error instanceof Error ? error.message : "Analysis failed.";
       setStatusMessage(message);
     }
+  };
+
+  const handleAnalystReportUpdate = (updated: AnalysisReport): void => {
+    setReport(updated);
+    const cipher = session.getVaultCipher();
+    if (!cipher) { setStatusMessage("Review changes are in memory. Export JSON before leaving this page; start with an unlocked vault to retain encrypted reviews."); return; }
+    saveQueue.current = saveQueue.current.catch(() => {}).then(() => saveReportLocally(updated, openedAgentWork, cipher)).then(async () => {
+      await refreshSavedRuns(cipher);
+      setStatusMessage("Analyst review saved in the encrypted vault.");
+    }).catch(() => setStatusMessage("Review updated in memory, but saving failed. Export the report before closing."));
   };
 
   const handlePersistReport = async (): Promise<void> => {
@@ -641,6 +657,7 @@ export function AnalysisWorkspacePage(): JSX.Element {
         onExportHtml={handleExportHtml}
         onExportSarif={handleExportSarif}
         onPersistReport={handlePersistReport}
+        onReportUpdate={handleAnalystReportUpdate}
         onSelectMapLabel={setSelectedMapLabel}
         onSelectCitation={handleSelectCitation}
         onOpenReportSection={handleOpenReportSection}
@@ -671,6 +688,8 @@ export function AnalysisWorkspacePage(): JSX.Element {
               {INSPECT_ANOTHER_WORKSPACE_LABEL}
             </MaterialButton>
           ) : (
+            <>
+            <MaterialButton variant="outlined" onClick={handleInspectAnotherWorkspace}>New review</MaterialButton>
             <MaterialButton
               variant="outlined"
               icon={<ArrowLeft className="h-4 w-4" aria-hidden />}
@@ -679,6 +698,7 @@ export function AnalysisWorkspacePage(): JSX.Element {
             >
               {BACK_TO_WORKSPACES_LABEL}
             </MaterialButton>
+            </>
           )}
         </div>
         {showingWorkspaceList ? (
@@ -764,9 +784,11 @@ export function AnalysisWorkspacePage(): JSX.Element {
         </PageSection>
       )}
 
-      {!showingWorkspaceList && <WorkspaceJourney steps={journey.steps} nextAction={journey.nextAction} />}
+      {!showingWorkspaceList && openWorkspaceReport}
 
-      {!showingWorkspaceList && (
+      {!showingWorkspaceList && !report && <WorkspaceJourney steps={journey.steps} nextAction={journey.nextAction} />}
+
+      {!showingWorkspaceList && !report && (
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <PageSection
           title="Repository input"
@@ -823,6 +845,8 @@ export function AnalysisWorkspacePage(): JSX.Element {
           icon={ScanSearch}
         >
           <div className="flex flex-wrap gap-2">
+            <label className="analyst-field">AI request ceiling<input type="number" min="1" max="1000" value={requestLimit} onChange={e=>setRequestLimit(e.target.value)}/></label>
+            <label className="analyst-field">AI token ceiling<input type="number" min="1000" max="2000000" value={tokenLimit} onChange={e=>setTokenLimit(e.target.value)}/></label>
             <MaterialButton
               variant="outlined"
               icon={<FlaskConical className="h-4 w-4" aria-hidden />}
@@ -831,6 +855,7 @@ export function AnalysisWorkspacePage(): JSX.Element {
             >
               Demo fixture
             </MaterialButton>
+            <MaterialButton variant="outlined" onClick={() => void handleRunAnalysis(false)} disabled={!store || runner.isRunning || ingestion.isLoading} data-testid="run-static-review">Run static review</MaterialButton>
             <MaterialButton
               variant="outlined"
               icon={<Github className="h-4 w-4" aria-hidden />}
@@ -842,7 +867,7 @@ export function AnalysisWorkspacePage(): JSX.Element {
             <MaterialButton
               icon={<Play className="h-4 w-4" aria-hidden />}
               disabled={runner.isRunning || !store || Boolean(analysisBlockedReason)}
-              onClick={handleRunAnalysis}
+              onClick={() => void handleRunAnalysis(true)}
               data-testid="run-analysis-button"
             >
               {runner.isRunning ? "Threat modeling…" : "Run AI threat model"}
@@ -920,7 +945,7 @@ export function AnalysisWorkspacePage(): JSX.Element {
       {!showingWorkspaceList && (progress || statusMessage || ingestion.error || runner.isRunning || runner.agentWork.length > 0) && (
         <PageSection
           title="Progress"
-          description="The nine audit agents and the steps each one is taking."
+          description="Completed, running and skipped stages for this review."
           icon={GitBranch}
         >
           {progress && (

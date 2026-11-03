@@ -6,6 +6,7 @@ import {
   type GraphEdge,
   type GraphNode,
 } from "@sentinel/schema";
+import { traceJavaScriptFlows } from "./static-flow.js";
 import { isGoPath, isPythonPath, isReviewedTextPath } from "./source-language.js";
 
 export interface ObservedDataFlowStep {
@@ -381,7 +382,7 @@ function buildFlows(spans: FunctionSpan[]): ObservedDataFlow[] {
 
 function provenance(path: string, rationale: string, commitSha?: string) {
   return {
-    kind: PROVENANCE_KIND.OBSERVED,
+    kind: PROVENANCE_KIND.INFERRED,
     confidence: 0.7,
     rationale,
     references: [{ path, commitSha }],
@@ -401,7 +402,8 @@ export function extractCallFlows(files: Map<string, string>, commitSha?: string)
     spans.push(...scanFunctions(path, content));
   }
 
-  const flows = buildFlows(spans);
+  const legacy = buildFlows(spans).filter(flow => !/\.[cm]?[jt]sx?$/.test(flow.path)).map(flow => ({...flow, summary: "Heuristic candidate: " + flow.summary.replace(" reaches ", " may relate to ")}));
+  const flows: ObservedDataFlow[] = [...traceJavaScriptFlows(files), ...legacy];
   const linkedIds = new Set<string>();
   for (const flow of flows) {
     for (const step of flow.steps) {
@@ -431,7 +433,7 @@ export function extractCallFlows(files: Map<string, string>, commitSha?: string)
         startLine: span.startLine,
         endLine: span.endLine,
       },
-      provenance: provenance(span.path, "Function participates in an observed source-to-sink chain", commitSha),
+      provenance: provenance(span.path, "Function participates in a static candidate chain; runtime reachability is unverified", commitSha),
     });
   }
 
@@ -473,7 +475,7 @@ export function extractCallFlows(files: Map<string, string>, commitSha?: string)
       kind: "data_flow",
       label: flow.summary,
       bidirectional: false,
-      provenance: provenance(sinkSpan.path, "Untrusted input reaches a sensitive sink", commitSha),
+      provenance: provenance(sinkSpan.path, "Static candidate connection; controls and runtime reachability require verification", commitSha),
     });
   }
 

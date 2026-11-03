@@ -1,3 +1,4 @@
+import { verifyAuditFindings } from "./audit-verifier.js";
 import { buildArchitectureProfile, extractArchitecture, extractCallFlows, graphToMermaid } from "@sentinel/graph";
 import type { AiProviderAdapter, ProviderUsage } from "@sentinel/providers";
 import {
@@ -186,13 +187,13 @@ export async function runAnalysisOrchestrator(
 
   const findings = applyReviewOrdering(
     attachDataFlows(
-      dedupeByStableKey([
+      verifyAuditFindings(dedupeByStableKey([
         ...staticFindings,
         ...scannerFindings,
         ...skillFindings,
         ...advisoryLookup.findings,
         ...aiFindings,
-      ]),
+      ]), options.store.contents, graph, options.store.index.commitSha),
       observedFlows,
     ),
     options.priorMemory,

@@ -18,7 +18,6 @@ import {
 } from "../vault/vaultCrypto.js";
 import { replaceRetiredOpenAiModel } from "../provider/providerDefaults.js";
 import {
-  clearStoredProviderSettings,
   hasUserSavedProviderSettings,
   readStoredProviderSettings,
   writeStoredProviderSettings,

@@ -116,6 +116,18 @@ export function reportToMarkdown(report: AnalysisReport): string {
       lines.push(`  - ${sanitizeMarkdownText(question)}`);
     }
   }
+  if (report.analyst) {
+    lines.push("", "## Analyst decisions and verification");
+    for (const [key, review] of Object.entries(report.analyst.reviews)) {
+      lines.push(`### ${sanitizeMarkdownText(key)}`, `Decision: ${review.decision}; owner: ${sanitizeMarkdownText(review.owner)}; due: ${review.dueDate || "unset"}.`, sanitizeMarkdownText(review.notes), `Verification: ${review.verification}; snapshot: ${sanitizeMarkdownText(review.verifiedCommit)}.`, sanitizeMarkdownText(review.verificationEvidence));
+    }
+    lines.push("", "## Control assessments", "Selected review prompts only; not an ASVS certification.");
+    for (const [key, control] of Object.entries(report.analyst.controls)) lines.push(`- ${sanitizeMarkdownText(key)}: ${control.status}; reviewer: ${sanitizeMarkdownText(control.reviewer)}. ${sanitizeMarkdownText(control.evidence)}`);
+    lines.push("", "## Imported scanner claims");
+    for (const run of report.analyst.scannerRuns) lines.push(`- ${sanitizeMarkdownText(run.tool)}: ${run.status}; ${run.resultCount} claims; ${run.skippedCount} skipped; snapshot ${sanitizeMarkdownText(run.commit)}. ${sanitizeMarkdownText(run.detail)}`);
+    lines.push("", "## Model declarations", "The complete extracted model and analyst declarations are available in the JSON report.");
+    for (const [id, flow] of Object.entries(report.analyst.flows)) lines.push(`- ${sanitizeMarkdownText(id)}: ${sanitizeMarkdownText(flow.label)}; data ${flow.dataClass}; transport ${sanitizeMarkdownText(flow.transport)}; authentication ${sanitizeMarkdownText(flow.authentication)}; authorisation ${sanitizeMarkdownText(flow.authorizationControl)}; boundary ${sanitizeMarkdownText(flow.boundary)}.`);
+  }
   return lines.join("\n");
 }
 
@@ -135,5 +147,5 @@ export function reportToPrintableHtml(report: AnalysisReport): string {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><title>${sanitizeMarkdownText(report.title)}</title><style>body{font-family:system-ui,sans-serif;max-width:900px;margin:2rem auto;line-height:1.5;padding:0 1rem}pre{white-space:pre-wrap;background:#f4f4f5;padding:1rem;border-radius:8px}</style></head><body><pre>${escaped}</pre></body></html>`;
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><title>${sanitizeMarkdownText(report.title).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</title><style>body{font-family:system-ui,sans-serif;max-width:900px;margin:2rem auto;line-height:1.5;padding:0 1rem}pre{white-space:pre-wrap;background:#f4f4f5;padding:1rem;border-radius:8px}</style></head><body><pre>${escaped}</pre></body></html>`;
 }

@@ -14,9 +14,10 @@ export function verifyAuditFindings(
   findings: Finding[],
   contents: Map<string, string>,
   graph: ArchitectureGraph,
+  expectedCommit?: string,
 ): Finding[] {
   const nodeIds = new Set(graph.nodes.map((node) => node.id));
-  return findings.map((finding) => verifyFinding(finding, contents, nodeIds));
+  return findings.map((finding) => verifyFinding(finding, contents, nodeIds, expectedCommit));
 }
 
 export function resolveAttackPaths(paths: AttackPath[], findings: Finding[]): AttackPath[] {
@@ -51,15 +52,26 @@ function verifyFinding(
   finding: Finding,
   contents: Map<string, string>,
   nodeIds: Set<string>,
+  expectedCommit?: string,
 ): Finding {
   const linked = new Set(finding.affectedNodeIds);
   const missingPaths: string[] = [];
+  const invalidEvidence: string[] = [];
   for (const reference of finding.references) {
     const normalized = reference.path.replace(/\\/g, "/").replace(/^\/+/, "");
     const stored = contents.has(normalized) ? normalized : contents.has(reference.path) ? reference.path : undefined;
     if (!stored) {
       missingPaths.push(reference.path);
       continue;
+    }
+    const lines = contents.get(stored)!.split(/\r?\n/);
+    if (reference.startLine !== undefined && (reference.startLine < 1 || reference.startLine > lines.length || (reference.endLine ?? reference.startLine) < reference.startLine || (reference.endLine ?? reference.startLine) > lines.length)) {
+      invalidEvidence.push(`Invalid line range: ${stored}`);
+    }
+    if (expectedCommit && reference.commitSha && reference.commitSha !== expectedCommit) invalidEvidence.push(`Snapshot mismatch: ${stored}`);
+    if (reference.excerpt && reference.startLine) {
+      const cited = lines.slice(reference.startLine - 1, reference.endLine ?? reference.startLine).join("\n");
+      if (!cited.includes(reference.excerpt.replace(/\r\n/g, "\n"))) invalidEvidence.push(`Excerpt does not match cited lines: ${stored}`);
     }
     const moduleId = moduleNodeIdForPath(stored);
     if (nodeIds.has(moduleId)) {
@@ -83,6 +95,11 @@ function verifyFinding(
     counterevidence.push(MISSING_REFERENCE_NOTE);
   }
 
+  if (invalidEvidence.length || (expectedCommit && finding.commitSha && finding.commitSha !== expectedCommit)) {
+    status = FINDING_STATUS.INSUFFICIENT_EVIDENCE;
+    confidence = Math.min(confidence, 0.35);
+    counterevidence.push(...invalidEvidence, ...(expectedCommit && finding.commitSha && finding.commitSha !== expectedCommit ? ["Finding snapshot does not match indexed commit"] : []));
+  }
   return {
     ...finding,
     affectedNodeIds: [...linked],

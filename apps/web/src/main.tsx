@@ -19,3 +19,4 @@ createRoot(rootElement).render(
     </HashRouter>
   </StrictMode>,
 );
+import "./styles/analyst.css";
